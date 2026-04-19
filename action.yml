@@ -1,6 +1,6 @@
-name: 'Universal Repo Sync Action'
+name: 'Repo Sync Action'
 description: 'Sync repository from any Git platform to another (GitHub/Gitee/GitLab/GitCode)'
-author: 'Your Name'
+author: 'Kirito520Asuna'
 
 inputs:
   src:
