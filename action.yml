@@ -3,6 +3,14 @@ description: 'Sync repository from any Git platform to another (GitHub/Gitee/Git
 author: 'Kirito520Asuna'
 
 inputs:
+  user_email:
+    description: 'User email'
+    required: false
+    default: 'action@github.com'
+  user_name:
+    description: 'User name'
+    required: false
+    default: 'GitHub Action'
   src:
     description: 'Source repository URL (e.g., github.com/user/repo.git)'
     required: true
@@ -33,15 +41,17 @@ inputs:
     description: 'Force push mode (true/false)'
     required: false
     default: 'true'
-
+env:
+  USER_EMAIL: ${{ inputs.user_email || 'action@github.com' }}
+  USER_NAME: ${{ inputs.user_name || 'GitHub Action' }}
 runs:
   using: 'composite'
   steps:
     - name: Configure Git
       shell: bash
       run: |
-        git config --global user.email "action@github.com"
-        git config --global user.name "GitHub Action"
+        git config --global user.email "${{ env.USER_EMAIL }}"
+        git config --global user.name "${{ env.USER_NAME }}"
 
     - name: Sync Repository
       shell: bash
