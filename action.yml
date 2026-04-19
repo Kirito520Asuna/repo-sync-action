@@ -41,17 +41,15 @@ inputs:
     description: 'Force push mode (true/false)'
     required: false
     default: 'true'
-env:
-  USER_EMAIL: ${{ inputs.user_email || 'action@github.com' }}
-  USER_NAME: ${{ inputs.user_name || 'GitHub Action' }}
+
 runs:
   using: 'composite'
   steps:
     - name: Configure Git
       shell: bash
       run: |
-        git config --global user.email "${{ env.USER_EMAIL }}"
-        git config --global user.name "${{ env.USER_NAME }}"
+        git config --global user.email "${{ inputs.user_email || 'action@github.com' }}"
+        git config --global user.name "${{ inputs.user_name || 'GitHub Action' }}"
 
     - name: Sync Repository
       shell: bash
