@@ -122,7 +122,7 @@ push_target_repo() {
     log_dir="tmp/${RANDOM_SALT}"
     log=${log_dir}/push_output.log
 
-    mkdir "${log_dir}"
+    mkdir -p "${log_dir}"
     touch "${log}"
     if timeout "${push_timeout:-3540}" script -q -c "$PUSH_CMD $TARGET_URL HEAD:${target_branch}" $log 2>&1; then
        echo "✅ 推送成功"
