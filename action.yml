@@ -23,7 +23,7 @@ inputs:
     required: true
   src_token:
     description: 'Source repository token'
-    required: true
+    required: false
   dst:
     description: 'Destination repository URL (e.g., gitee.com/user/repo.git)'
     required: true
@@ -36,7 +36,7 @@ inputs:
     required: true
   dst_token:
     description: 'Destination repository token'
-    required: true
+    required: false
   force_push:
     description: 'Force push mode (true/false)'
     required: false

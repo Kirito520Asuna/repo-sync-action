@@ -18,8 +18,19 @@ check_repo_diff() {
     local source_url=$(echo "$source_url_temp" | sed 's|https\?://||g')
     local target_url=$(echo "$target_url_temp" | sed 's|https\?://||g')
 
-    local SOURCE_URL="https://${source_username}:${source_token}@${source_url}"
-    local TARGET_URL="https://${target_username}:${target_token}@${target_url}"
+    local SOURCE_URL
+    if [ -n "${source_token}" ]; then
+       SOURCE_URL="https://${source_username}:${source_token}@${source_url}"
+    else
+       SOURCE_URL="https://${source_url}"
+    fi
+
+    local TARGET_URL
+    if [ -n "${target_token}" ]; then
+       TARGET_URL="https://${target_username}:${target_token}@${target_url}"
+    else
+       TARGET_URL="https://${target_url}"
+    fi
 
     local repo_name=$(echo "$source_url" | sed 's|.*/||' | sed 's|\.git$||')
 
@@ -69,8 +80,19 @@ push_target_repo() {
     local source_url=$(echo "$source_url_temp" | sed 's|https\?://||g')
     local target_url=$(echo "$target_url_temp" | sed 's|https\?://||g')
 
-    local SOURCE_URL="https://${source_username}:${source_token}@${source_url}"
-    local TARGET_URL="https://${target_username}:${target_token}@${target_url}"
+    local SOURCE_URL
+    if [ -n "${source_token}" ]; then
+       SOURCE_URL="https://${source_username}:${source_token}@${source_url}"
+    else
+       SOURCE_URL="https://${source_url}"
+    fi
+
+    local TARGET_URL
+    if [ -n "${target_token}" ]; then
+       TARGET_URL="https://${target_username}:${target_token}@${target_url}"
+    else
+       TARGET_URL="https://${target_url}"
+    fi
 
     local repo_name=$(echo "$source_url" | sed 's|.*/||' | sed 's|\.git$||')
 
