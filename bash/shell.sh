@@ -157,7 +157,7 @@ push_target_repo() {
     fi
     local RANDOM_SALT_PUSH=$(openssl rand -hex 16)
     log_push=${log_dir}/push_${RANDOM_SALT_PUSH}.log
-
+    mkdir -p "${log_dir}"
     touch "${log_push}"
     if timeout "${push_timeout:-3540}" script -q -c "$PUSH_CMD $TARGET_URL HEAD:${target_branch}" $log_push 2>&1; then
        echo "✅ 推送成功"
