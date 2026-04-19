@@ -118,7 +118,12 @@ push_target_repo() {
     if [ "${force_push}" = "true" ]; then
        PUSH_CMD="git push -f --progress"
     fi
-    log=tmp/push_output.log
+    local RANDOM_SALT=$(openssl rand -hex 16)
+    log_dir="/tmp/${RANDOM_SALT}"
+    log=${log_dir}/push_output.log
+
+#    mkdir "${log_dir}"
+#    touch "${log}"
     if timeout "${push_timeout:-3540}" script -q -c "$PUSH_CMD $TARGET_URL HEAD:${target_branch}" $log 2>&1; then
        echo "✅ 推送成功"
     else
