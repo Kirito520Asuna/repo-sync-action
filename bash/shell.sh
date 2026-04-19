@@ -55,10 +55,29 @@ check_repo_diff() {
         rm -rf "$repo_name"
     fi
 
-    git clone "$SOURCE_URL" -b "$source_branch" "$repo_name" || {
-        echo "❌ 克隆失败"
-        return 1
-    }
+#    git clone "$SOURCE_URL" -b "$source_branch" "$repo_name" || {
+#        echo "❌ 克隆失败"
+#        return 1
+#    }
+
+    log_dir="tmp/log"
+
+    mkdir -p "${log_dir}"
+
+    if [ ! -d "$repo_name" ]; then
+        local RANDOM_SALT_CLONE=$(openssl rand -hex 16)
+        local clone_log="${log_dir}/clone_${RANDOM_SALT_CLONE}.log"
+        touch "${clone_log}"
+        if script -q -c "git clone '$SOURCE_URL' -b '$source_branch' '$repo_name'" $clone_log 2>&1; then
+           cat $clone_log
+           rm -f $clone_log
+        else
+           echo "❌ 克隆失败"
+           cat $clone_log
+           rm -f $clone_log
+           return 1
+        fi
+    fi
 
     cd "$repo_name" || return 1
 
@@ -104,10 +123,28 @@ push_target_repo() {
 
     echo "🚀 推送: ${repo_name} (${source_branch} → ${target_branch})"
 
-    if [ ! -d "$repo_name" ]; then
-        git clone "$SOURCE_URL" -b "$source_branch" "$repo_name"
-    fi
+#    if [ ! -d "$repo_name" ]; then
+#        git clone "$SOURCE_URL" -b "$source_branch" "$repo_name"
+#    fi
 
+    log_dir="tmp/log"
+
+    mkdir -p "${log_dir}"
+
+    if [ ! -d "$repo_name" ]; then
+        local RANDOM_SALT_CLONE=$(openssl rand -hex 16)
+        local clone_log="${log_dir}/clone_${RANDOM_SALT_CLONE}.log"
+        touch "${clone_log}"
+        if script -q -c "git clone '$SOURCE_URL' -b '$source_branch' '$repo_name'" $clone_log 2>&1; then
+           cat $clone_log
+           rm -f $clone_log
+        else
+           echo "❌ 克隆失败"
+           cat $clone_log
+           rm -f $clone_log
+           return 1
+        fi
+    fi
     cd "$repo_name" || return 1
 
     git config http.postBuffer "${git_post_buffer:-524288000}"
@@ -118,24 +155,23 @@ push_target_repo() {
     if [ "${force_push}" = "true" ]; then
        PUSH_CMD="git push -f --progress"
     fi
-    local RANDOM_SALT=$(openssl rand -hex 16)
-    log_dir="tmp/${RANDOM_SALT}"
-    log=${log_dir}/push_output.log
+    local RANDOM_SALT_PUSH=$(openssl rand -hex 16)
+    log_push=${log_dir}/push_${RANDOM_SALT_PUSH}.log
 
-    mkdir -p "${log_dir}"
-    touch "${log}"
-    if timeout "${push_timeout:-3540}" script -q -c "$PUSH_CMD $TARGET_URL HEAD:${target_branch}" $log 2>&1; then
+    touch "${log_push}"
+    if timeout "${push_timeout:-3540}" script -q -c "$PUSH_CMD $TARGET_URL HEAD:${target_branch}" $log_push 2>&1; then
        echo "✅ 推送成功"
     else
        echo "❌ 推送失败"
        echo "错误详情:"
-       cat $log
+       cat $log_push
        cd ..
        return 1
     fi
 
     cd ..
     rm -rf "$repo_name"
+    rm -f "$log_push"
 }
 
 sync() {
