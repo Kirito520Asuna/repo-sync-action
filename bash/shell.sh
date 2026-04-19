@@ -81,6 +81,12 @@ push_target_repo() {
     local source=${1}
     local target=${2}
     local force_push=${3}
+    local git_config=${4}
+
+    local git_post_buffer=$(echo "$git_config" | cut -d '|' -f 1)
+    local git_low_speed_limit=$(echo "$git_config" | cut -d '|' -f 2)
+    local git_low_speed_time=$(echo "$git_config" | cut -d '|' -f 3)
+    local push_timeout=$(echo "$git_config" | cut -d '|' -f 4)
 
     local source_url_temp=$(echo "$source" | cut -d '|' -f 1)
     local source_branch=$(echo "$source" | cut -d '|' -f 2)
@@ -104,19 +110,21 @@ push_target_repo() {
 
     cd "$repo_name" || return 1
 
-    git config http.postBuffer 524288000
-    git config http.lowSpeedLimit 1000
-    git config http.lowSpeedTime 60
+    git config http.postBuffer "${git_post_buffer:-524288000}"
+    git config http.lowSpeedLimit "${git_low_speed_limit:-1000}"
+    git config http.lowSpeedTime "${git_low_speed_time:-60}"
     
     PUSH_CMD="git push"
     if [ "${force_push}" = "true" ]; then
        PUSH_CMD="git push -f"
     fi
 
-    if timeout 1800 $PUSH_CMD "$TARGET_URL" "HEAD:${target_branch}" 2>&1; then
+    if timeout "${push_timeout:-3540}" $PUSH_CMD "$TARGET_URL" "HEAD:${target_branch}" 2>&1; then
        echo "✅ 推送成功"
     else
        echo "❌ 推送失败"
+       echo "错误详情:"
+       cat /tmp/push_output.log
        cd ..
        return 1
     fi
@@ -129,11 +137,12 @@ sync() {
     local source=${1}
     local target=${2}
     local force_push=${3}
+    local git_config=${4}
 
     check_repo_diff "${source}" "${target}"
 
     if [ "${HAS_DIFF}" = "true" ]; then
-        push_target_repo "${source}" "${target}" "${force_push}"
+        push_target_repo "${source}" "${target}" "${force_push}" "${git_config}"
     else
         echo "✅ 无差异，跳过"
     fi
@@ -148,9 +157,16 @@ main_sync(){
   local BRANCH_TARGET=${6}
   local USERNAME_TARGET=${7}
   local TOKEN_TARGET=${8}
+
   local FORCE_PUSH=${9}
+  local GIT_POST_BUFFER=${10}
+  local GIT_LOW_SPEED_LIMIT=${11}
+  local GIT_LOW_SPEED_TIME=${12}
+  local PUSH_TIMEOUT=${13}
 
   local TARGET="${URL_TARGET}|${BRANCH_TARGET}|${USERNAME_TARGET}|${TOKEN_TARGET}"
   local SOURCE="${URL_SOURCE}|${BRANCH_SOURCE}|${USERNAME_SOURCE}|${TOKEN_SOURCE}"
-  sync "${SOURCE}" "${TARGET}" "${FORCE_PUSH}"
+  local GIT_CONFIG="${GIT_POST_BUFFER:-524288000}|${GIT_LOW_SPEED_LIMIT:-1000}|${GIT_LOW_SPEED_TIME:-60}|${PUSH_TIMEOUT:-3540}"
+
+  sync "${SOURCE}" "${TARGET}" "${FORCE_PUSH}" "${GIT_CONFIG}"
 }

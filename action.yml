@@ -41,7 +41,22 @@ inputs:
     description: 'Force push mode (true/false)'
     required: false
     default: 'false'
-
+  git_post_buffer:
+    description: 'Git post buffer size in bytes'
+    required: false
+    default: '524288000'
+  git_low_speed_limit:
+    description: 'Git low speed limit in bytes/second'
+    required: false
+    default: '1000'
+  git_low_speed_time:
+    description: 'Git low speed time in seconds'
+    required: false
+    default: '60'
+  push_timeout:
+    description: 'Push timeout in seconds'
+    required: false
+    default: '3540'
 runs:
   using: 'composite'
   steps:
@@ -66,10 +81,16 @@ runs:
         BRANCH_TARGET="${{ inputs.dst_branch }}"
         USERNAME_TARGET="${{ inputs.dst_username }}"
         TOKEN_TARGET="${{ inputs.dst_token }}"
+
         FORCE_PUSH="${{ inputs.force_push }}"
+        GIT_POST_BUFFER="${{ inputs.git_post_buffer }}"
+        GIT_LOW_SPEED_LIMIT="${{ inputs.git_low_speed_limit }}"
+        GIT_LOW_SPEED_TIME="${{ inputs.git_low_speed_time }}"
+        PUSH_TIMEOUT="${{ inputs.push_timeout }}"
         
         main_sync "$URL_SOURCE" "$BRANCH_SOURCE" "$USERNAME_SOURCE" "$TOKEN_SOURCE" \
-                  "$URL_TARGET" "$BRANCH_TARGET" "$USERNAME_TARGET" "$TOKEN_TARGET" "$FORCE_PUSH"
+                  "$URL_TARGET" "$BRANCH_TARGET" "$USERNAME_TARGET" "$TOKEN_TARGET" \
+                  "$FORCE_PUSH" "$GIT_POST_BUFFER" "$GIT_LOW_SPEED_LIMIT" "$GIT_LOW_SPEED_TIME" "$PUSH_TIMEOUT"
 
 branding:
   icon: 'refresh-cw'
