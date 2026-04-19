@@ -1,0 +1,67 @@
+name: 'Universal Repo Sync Action'
+description: 'Sync repository from any Git platform to another (GitHub/Gitee/GitLab/GitCode)'
+author: 'Your Name'
+
+inputs:
+  src:
+    description: 'Source repository URL (e.g., github.com/user/repo.git)'
+    required: true
+  src_branch:
+    description: 'Source branch'
+    required: false
+    default: 'main'
+  src_username:
+    description: 'Source repository username'
+    required: true
+  src_token:
+    description: 'Source repository token'
+    required: true
+  dst:
+    description: 'Destination repository URL (e.g., gitee.com/user/repo.git)'
+    required: true
+  dst_branch:
+    description: 'Destination branch'
+    required: false
+    default: 'master'
+  dst_username:
+    description: 'Destination repository username'
+    required: true
+  dst_token:
+    description: 'Destination repository token'
+    required: true
+  force_push:
+    description: 'Force push mode (true/false)'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure Git
+      shell: bash
+      run: |
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
+
+    - name: Sync Repository
+      shell: bash
+      run: |
+        SCRIPT_DIR="${{ github.action_path }}"
+        source "$SCRIPT_DIR/.github/workflows/bash/shell.sh"
+        
+        URL_SOURCE="https://${{ inputs.src }}"
+        BRANCH_SOURCE="${{ inputs.src_branch }}"
+        USERNAME_SOURCE="${{ inputs.src_username }}"
+        TOKEN_SOURCE="${{ inputs.src_token }}"
+        
+        URL_TARGET="https://${{ inputs.dst }}"
+        BRANCH_TARGET="${{ inputs.dst_branch }}"
+        USERNAME_TARGET="${{ inputs.dst_username }}"
+        TOKEN_TARGET="${{ inputs.dst_token }}"
+        
+        main_sync "$URL_SOURCE" "$BRANCH_SOURCE" "$USERNAME_SOURCE" "$TOKEN_SOURCE" \
+                  "$URL_TARGET" "$BRANCH_TARGET" "$USERNAME_TARGET" "$TOKEN_TARGET"
+
+branding:
+  icon: 'refresh-cw'
+  color: 'blue'
