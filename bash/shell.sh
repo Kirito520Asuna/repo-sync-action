@@ -1,7 +1,6 @@
 # ==================== 通用仓库同步脚本 ====================
 
 HAS_DIFF=false
-
 check_repo_diff() {
     local source=${1}
     local target=${2}
@@ -55,6 +54,7 @@ check_repo_diff() {
 push_target_repo() {
     local source=${1}
     local target=${2}
+    local force_push=${3}
 
     local source_url_temp=$(echo "$source" | cut -d '|' -f 1)
     local source_branch=$(echo "$source" | cut -d '|' -f 2)
@@ -85,13 +85,18 @@ push_target_repo() {
     git config http.postBuffer 524288000
     git config http.lowSpeedLimit 1000
     git config http.lowSpeedTime 60
+    
+    PUSH_CMD="git push"
+    if [ "${force_push}" = "true" ]; then
+       PUSH_CMD="git push -f"
+    fi
 
-    if timeout 1800 git push -f "$TARGET_URL" "HEAD:${target_branch}" 2>&1; then
-        echo "✅ 推送成功"
+    if timeout 1800 $PUSH_CMD "$TARGET_URL" "HEAD:${target_branch}" 2>&1; then
+       echo "✅ 推送成功"
     else
-        echo "❌ 推送失败"
-        cd ..
-        return 1
+       echo "❌ 推送失败"
+       cd ..
+       return 1
     fi
 
     cd ..
@@ -101,11 +106,12 @@ push_target_repo() {
 sync() {
     local source=${1}
     local target=${2}
+    local force_push=${3}
 
     check_repo_diff "${source}" "${target}"
 
     if [ "${HAS_DIFF}" = "true" ]; then
-        push_target_repo "${source}" "${target}"
+        push_target_repo "${source}" "${target}" "${force_push}"
     else
         echo "✅ 无差异，跳过"
     fi
@@ -120,8 +126,9 @@ main_sync(){
   local BRANCH_TARGET=${6}
   local USERNAME_TARGET=${7}
   local TOKEN_TARGET=${8}
+  local FORCE_PUSH=${9}
 
   local TARGET="${URL_TARGET}|${BRANCH_TARGET}|${USERNAME_TARGET}|${TOKEN_TARGET}"
   local SOURCE="${URL_SOURCE}|${BRANCH_SOURCE}|${USERNAME_SOURCE}|${TOKEN_SOURCE}"
-  sync "${SOURCE}" "${TARGET}"
+  sync "${SOURCE}" "${TARGET}" "${FORCE_PUSH}"
 }

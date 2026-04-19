@@ -20,13 +20,15 @@ GitHub Action 用于同步仓库代码到不同平台（如 GitHub → Gitee）
     dst_branch: master
     dst_username: ${{ secrets.DST_USERNAME }}
     dst_token: ${{ secrets.DST_TOKEN }}
+    #是否强制推送（可选）
+    force_push: 'true'
 ```
 ## 参数说明
 
 | 参数 | 必填 | 说明 | 示例 |
 |------|------|------|------|
-| `user_email` | 否 | `action@github.com` | Git 提交邮箱 | `your@email.com` |
-| `user_name` | 否 | `GitHub Action` | Git 提交用户名 | `Your Name` |
+| `user_email` | 否 |Git 提交邮箱 | `action@github.com` | 
+| `user_name` | 否 | Git 提交用户名 |`GitHub Action` |  
 | `src` | 是 | 源仓库地址 | `github.com/user/repo.git` |
 | `src_branch` | 是 | 源仓库分支 | `main` |
 | `src_username` | 是 | 源仓库用户名 | `${{ secrets.SRC_USERNAME }}` |
@@ -35,7 +37,7 @@ GitHub Action 用于同步仓库代码到不同平台（如 GitHub → Gitee）
 | `dst_branch` | 是 | 目标仓库分支 | `master` |
 | `dst_username` | 是 | 目标仓库用户名 | `${{ secrets.DST_USERNAME }}` |
 | `dst_token` | 是 | 目标仓库访问令牌 | `${{ secrets.DST_TOKEN }}` |
-
+| `force_push` | 否 | 是否强制推送 | `'true'` / `'false'` |
 ## 配置 Secrets
 
 在 GitHub 仓库的 **Settings → Secrets and variables → Actions** 中添加以下密钥：
@@ -78,6 +80,7 @@ jobs:
           dst_branch: master
           dst_username: ${{ secrets.DST_USERNAME }}
           dst_token: ${{ secrets.DST_TOKEN }}
+          force_push: 'true'
 ```
 ## 注意事项
 
@@ -85,3 +88,4 @@ jobs:
 - 仓库地址不需要包含 `https://` 前缀
 - Token 需要具有读写权限
 - 目标仓库需要提前创建好
+- 首次同步建议使用 `force_push: 'true'`

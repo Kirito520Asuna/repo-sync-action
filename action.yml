@@ -40,7 +40,7 @@ inputs:
   force_push:
     description: 'Force push mode (true/false)'
     required: false
-    default: 'true'
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -66,9 +66,10 @@ runs:
         BRANCH_TARGET="${{ inputs.dst_branch }}"
         USERNAME_TARGET="${{ inputs.dst_username }}"
         TOKEN_TARGET="${{ inputs.dst_token }}"
+        FORCE_PUSH="${{ inputs.force_push }}"
         
         main_sync "$URL_SOURCE" "$BRANCH_SOURCE" "$USERNAME_SOURCE" "$TOKEN_SOURCE" \
-                  "$URL_TARGET" "$BRANCH_TARGET" "$USERNAME_TARGET" "$TOKEN_TARGET"
+                  "$URL_TARGET" "$BRANCH_TARGET" "$USERNAME_TARGET" "$TOKEN_TARGET" "$FORCE_PUSH"
 
 branding:
   icon: 'refresh-cw'
