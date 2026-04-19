@@ -114,17 +114,17 @@ push_target_repo() {
     git config http.lowSpeedLimit "${git_low_speed_limit:-1000}"
     git config http.lowSpeedTime "${git_low_speed_time:-60}"
     
-    PUSH_CMD="git push"
+    PUSH_CMD="git push --progress"
     if [ "${force_push}" = "true" ]; then
-       PUSH_CMD="git push -f"
+       PUSH_CMD="git push -f --progress"
     fi
-
-    if timeout "${push_timeout:-3540}" $PUSH_CMD "$TARGET_URL" "HEAD:${target_branch}" 2>&1; then
+    log=tmp/push_output.log
+    if timeout "${push_timeout:-3540}" script -q -c "$PUSH_CMD $TARGET_URL HEAD:${target_branch}" $log 2>&1; then
        echo "✅ 推送成功"
     else
        echo "❌ 推送失败"
        echo "错误详情:"
-       cat /tmp/push_output.log
+       cat $log
        cd ..
        return 1
     fi
