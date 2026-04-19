@@ -50,8 +50,8 @@ check_repo_diff() {
     local SOURCE_SHA=$(git rev-parse HEAD)
     local TARGET_SHA=$(git ls-remote "$TARGET_URL" "$target_branch" 2>/dev/null | awk '{print $1}')
 
-    echo "SOURCE: $SOURCE_SHA"
-    echo "TARGET: ${TARGET_SHA:-无}"
+    echo "SHA-SOURCE: $SOURCE_SHA"
+    echo "SHA-TARGET: ${TARGET_SHA:-无}"
 
     if [ "$SOURCE_SHA" = "$TARGET_SHA" ] && [ -n "$TARGET_SHA" ]; then
         HAS_DIFF=false
