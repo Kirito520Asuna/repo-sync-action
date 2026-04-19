@@ -47,7 +47,7 @@ runs:
       shell: bash
       run: |
         SCRIPT_DIR="${{ github.action_path }}"
-        source "$SCRIPT_DIR/.github/workflows/bash/shell.sh"
+        source "$SCRIPT_DIR/bash/shell.sh"
         
         URL_SOURCE="https://${{ inputs.src }}"
         BRANCH_SOURCE="${{ inputs.src_branch }}"
