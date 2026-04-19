@@ -83,6 +83,7 @@ jobs:
           dst_token: ${{ secrets.DST_TOKEN }}
           force_push: 'true'
       # Upstream Sync
+      # 1.Upstream is public
       - name: Sync Upstream
         uses: Kirito520Asuna/repo-sync-action@main
         with:
@@ -90,7 +91,20 @@ jobs:
           src_branch: main
           src_username: ${{ secrets.SRC_USERNAME }}
           #src_token: ${{ secrets.SRC_TOKEN }}
-          dst: gitee.com/username/Upstream.git
+          dst: github.com/username/Upstream.git
+          dst_branch: master
+          dst_username: ${{ secrets.DST_USERNAME }}
+          dst_token: ${{ secrets.DST_TOKEN }}
+          #force_push: 'true'
+      # 2.Upstream is private
+      - name: Sync Upstream
+        uses: Kirito520Asuna/repo-sync-action@main
+        with:
+          src: github.com/username-Upstream/Upstream.git
+          src_branch: main
+          src_username: ${{ secrets.SRC_USERNAME }}
+          src_token: ${{ secrets.SRC_TOKEN }}
+          dst: github.com/username/Upstream.git
           dst_branch: master
           dst_username: ${{ secrets.DST_USERNAME }}
           dst_token: ${{ secrets.DST_TOKEN }}
