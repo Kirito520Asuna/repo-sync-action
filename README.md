@@ -32,7 +32,7 @@ GitHub Action 用于同步仓库代码到不同平台（如 GitHub → Gitee）
 | `src` | 是 | 源仓库地址 | `github.com/user/repo.git` |
 | `src_branch` | 是 | 源仓库分支 | `main` |
 | `src_username` | 是 | 源仓库用户名 | `${{ secrets.SRC_USERNAME }}` |
-| `src_token` | 是 | 源仓库访问令牌 | `${{ secrets.SRC_TOKEN }}` |
+| `src_token` | 否 | 源仓库访问令牌 | `${{ secrets.SRC_TOKEN }}` |
 | `dst` | 是 | 目标仓库地址 | `gitee.com/user/repo.git` |
 | `dst_branch` | 是 | 目标仓库分支 | `master` |
 | `dst_username` | 是 | 目标仓库用户名 | `${{ secrets.DST_USERNAME }}` |
