@@ -1,6 +1,36 @@
 # ==================== 通用仓库同步脚本 ====================
 
 HAS_DIFF=false
+build_git_url() {
+    local url_temp=${1}
+    local username=${2}
+    local token=${3}
+
+    if echo "$url_temp" | grep -q "^git@" || echo "$url_temp" | grep -q "^ssh://"; then
+       echo "$url_temp"
+    else
+       local url=$(echo "$url_temp" | sed 's|https\?://||g')
+       if [ -n "${token}" ]; then
+          echo "https://${username}:${token}@${url}"
+       else
+          echo "https://${url}"
+       fi
+    fi
+}
+
+extract_repo_name() {
+    local url_temp=${1}
+
+    if echo "$url_temp" | grep -q "^git@"; then
+       echo "$url_temp" | sed 's|:|/|g' | sed 's|.*/||' | sed 's|\.git$||'
+    elif echo "$url_temp" | grep -q "^ssh://"; then
+       echo "$url_temp" | sed 's|.*/||' | sed 's|\.git$||'
+    else
+       local url=$(echo "$url_temp" | sed 's|https\?://||g')
+       echo "$url" | sed 's|.*/||' | sed 's|\.git$||'
+    fi
+}
+
 check_repo_diff() {
     local source=${1}
     local target=${2}
@@ -15,24 +45,9 @@ check_repo_diff() {
     local target_username=$(echo "$target" | cut -d '|' -f 3)
     local target_token=$(echo "$target" | cut -d '|' -f 4)
 
-    local source_url=$(echo "$source_url_temp" | sed 's|https\?://||g')
-    local target_url=$(echo "$target_url_temp" | sed 's|https\?://||g')
-
-    local SOURCE_URL
-    if [ -n "${source_token}" ]; then
-       SOURCE_URL="https://${source_username}:${source_token}@${source_url}"
-    else
-       SOURCE_URL="https://${source_url}"
-    fi
-
-    local TARGET_URL
-    if [ -n "${target_token}" ]; then
-       TARGET_URL="https://${target_username}:${target_token}@${target_url}"
-    else
-       TARGET_URL="https://${target_url}"
-    fi
-
-    local repo_name=$(echo "$source_url" | sed 's|.*/||' | sed 's|\.git$||')
+    local SOURCE_URL=$(build_git_url "$source_url_temp" "$source_username" "$source_token")
+    local TARGET_URL=$(build_git_url "$target_url_temp" "$target_username" "$target_token")
+    local repo_name=$(extract_repo_name "$source_url_temp")
 
     echo "🔍 检查差异: ${repo_name} (${source_branch} → ${target_branch})"
 
@@ -77,24 +92,9 @@ push_target_repo() {
     local target_username=$(echo "$target" | cut -d '|' -f 3)
     local target_token=$(echo "$target" | cut -d '|' -f 4)
 
-    local source_url=$(echo "$source_url_temp" | sed 's|https\?://||g')
-    local target_url=$(echo "$target_url_temp" | sed 's|https\?://||g')
-
-    local SOURCE_URL
-    if [ -n "${source_token}" ]; then
-       SOURCE_URL="https://${source_username}:${source_token}@${source_url}"
-    else
-       SOURCE_URL="https://${source_url}"
-    fi
-
-    local TARGET_URL
-    if [ -n "${target_token}" ]; then
-       TARGET_URL="https://${target_username}:${target_token}@${target_url}"
-    else
-       TARGET_URL="https://${target_url}"
-    fi
-
-    local repo_name=$(echo "$source_url" | sed 's|.*/||' | sed 's|\.git$||')
+    local SOURCE_URL=$(build_git_url "$source_url_temp" "$source_username" "$source_token")
+    local TARGET_URL=$(build_git_url "$target_url_temp" "$target_username" "$target_token")
+    local repo_name=$(extract_repo_name "$source_url_temp")
 
     echo "🚀 推送: ${repo_name} (${source_branch} → ${target_branch})"
 
