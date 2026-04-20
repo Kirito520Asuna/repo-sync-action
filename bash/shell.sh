@@ -6,15 +6,18 @@ build_git_url() {
     local username=${2}
     local token=${3}
 
-    if echo "$url_temp" | grep -q "^git@" || echo "$url_temp" | grep -q "^ssh://"; then
+    if [ -n "${token}" ]; then
+       local url=$(echo "$url_temp" | sed 's|https\?://||g')
+       if [ -n "${username}" ]; then
+          echo "https://${username}:${token}@${url}"
+       else
+          echo "https://x-access-token:${token}@${url}"
+       fi
+    elif echo "$url_temp" | grep -q "^git@" || echo "$url_temp" | grep -q "^ssh://"; then
        echo "$url_temp"
     else
        local url=$(echo "$url_temp" | sed 's|https\?://||g')
-       if [ -n "${token}" ]; then
-          echo "https://${username}:${token}@${url}"
-       else
-          echo "https://${url}"
-       fi
+       echo "https://${url}"
     fi
 }
 
