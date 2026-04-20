@@ -139,6 +139,10 @@ check_repo_diff() {
         echo "ℹ️ Target 分支不存在，首次推送"
         HAS_DIFF=true
         RELATION="init"
+    elif [ "$SOURCE_SHA" = "$TARGET_SHA" ]; then
+        echo "✅ SHA 一致，无需更新"
+        HAS_DIFF=false
+        RELATION="identical"
     else
         git remote add target "$TARGET_URL" 2>/dev/null || true
 
@@ -218,7 +222,7 @@ push_target_repo() {
         init|ff)
             PUSH_CMD="git push --progress"
             ;;
-        behind)
+        identical|behind)
             echo "✅ 无需推送"
             return 0
             ;;
