@@ -218,6 +218,10 @@ push_target_repo() {
     git config http.lowSpeedLimit "${git_low_speed_limit:-1000}"
     git config http.lowSpeedTime "${git_low_speed_time:-60}"
 
+    RANDOM_SALT_PUSH=$(openssl rand -hex 8)
+    log_push="$WORK_DIR/tmp/log/push_${RANDOM_SALT_PUSH}.log"
+    touch "$log_push"
+
     case "$RELATION" in
         init|ff)
             PUSH_CMD="git push --progress"
@@ -226,13 +230,59 @@ push_target_repo() {
             echo "✅ 无需推送"
             return 0
             ;;
-        diverged|unrelated)
+        diverged)
             if [ "${force_push}" = "true" ]; then
                 echo "⚠️ 强制推送"
                 PUSH_CMD="git push -f --progress"
             else
-                echo "❌ 冲突，拒绝推送"
-                return 1
+                echo "🔄 尝试合并 target 分支"
+                git remote add target "$TARGET_URL" 2>/dev/null || true
+                if ! retry_with_log "git fetch target '$target_branch' --quiet" "$log_push"; then
+                    echo "❌ 获取 target 分支失败"
+                    git remote remove target 2>/dev/null || true
+                    return 1
+                fi
+
+                MERGE_OPTS="--no-edit -m \"Merge branch '$target_branch' into sync\""
+                if ! git merge-base HEAD "target/$target_branch" >/dev/null 2>&1; then
+                    MERGE_OPTS="--allow-unrelated-histories $MERGE_OPTS"
+                fi
+
+                if ! eval "git merge target/\$target_branch $MERGE_OPTS"; then
+                    echo "❌ 合并冲突，无法自动解决"
+                    git merge --abort 2>/dev/null || true
+                    git remote remove target 2>/dev/null || true
+                    return 1
+                fi
+
+                git remote remove target 2>/dev/null || true
+                echo "✅ 合并成功，准备推送"
+                PUSH_CMD="git push --progress"
+            fi
+            ;;
+        unrelated)
+            if [ "${force_push}" = "true" ]; then
+                echo "⚠️ 强制推送（允许无共同历史）"
+                PUSH_CMD="git push -f --progress"
+            else
+                echo "🔄 尝试合并无共同历史的分支"
+                git remote add target "$TARGET_URL" 2>/dev/null || true
+                if ! retry_with_log "git fetch target '$target_branch' --quiet" "$log_push"; then
+                    echo "❌ 获取 target 分支失败"
+                    git remote remove target 2>/dev/null || true
+                    return 1
+                fi
+
+                if ! git merge "target/$target_branch" --allow-unrelated-histories --no-edit -m "Merge branch '$target_branch' into sync (unrelated histories)"; then
+                    echo "❌ 合并冲突，无法自动解决"
+                    git merge --abort 2>/dev/null || true
+                    git remote remove target 2>/dev/null || true
+                    return 1
+                fi
+
+                git remote remove target 2>/dev/null || true
+                echo "✅ 合并成功，准备推送"
+                PUSH_CMD="git push --progress"
             fi
             ;;
         *)
@@ -241,9 +291,6 @@ push_target_repo() {
             ;;
     esac
 
-    RANDOM_SALT_PUSH=$(openssl rand -hex 8)
-    log_push="$WORK_DIR/tmp/log/push_${RANDOM_SALT_PUSH}.log"
-    touch "$log_push"
     if retry_with_log "timeout ${push_timeout:-3540} $PUSH_CMD '$TARGET_URL' HEAD:$target_branch" "$log_push"; then
         echo "✅ 推送成功"
     else
