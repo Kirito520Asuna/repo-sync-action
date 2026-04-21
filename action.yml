@@ -57,6 +57,14 @@ inputs:
     description: 'Push timeout in seconds'
     required: false
     default: '3540'
+  unrelated_conflict_strategy:
+    description: 'Unrelated conflict strategy (MERGE/NEW_PR)'
+    required: false
+    default: 'MERGE'
+  diverged_conflict_strategy:
+    description: 'Diverged conflict strategy (MERGE/NEW_PR)'
+    required: false
+    default: 'MERGE'
 runs:
   using: 'composite'
   steps:
@@ -88,9 +96,13 @@ runs:
         GIT_LOW_SPEED_TIME="${{ inputs.git_low_speed_time }}"
         PUSH_TIMEOUT="${{ inputs.push_timeout }}"
         
+        DIVERGED_CONFLICT_STRATEGY="${{ inputs.diverged_conflict_strategy }}"
+        UNRELATED_CONFLICT_STRATEGY="${{ inputs.unrelated_conflict_strategy }}"
+        
         main_sync "$URL_SOURCE" "$BRANCH_SOURCE" "$USERNAME_SOURCE" "$TOKEN_SOURCE" \
                   "$URL_TARGET" "$BRANCH_TARGET" "$USERNAME_TARGET" "$TOKEN_TARGET" \
-                  "$FORCE_PUSH" "$GIT_POST_BUFFER" "$GIT_LOW_SPEED_LIMIT" "$GIT_LOW_SPEED_TIME" "$PUSH_TIMEOUT"
+                  "$FORCE_PUSH" "$GIT_POST_BUFFER" "$GIT_LOW_SPEED_LIMIT" "$GIT_LOW_SPEED_TIME" "$PUSH_TIMEOUT" \
+                  "$DIVERGED_CONFLICT_STRATEGY" "$UNRELATED_CONFLICT_STRATEGY"
 
 branding:
   icon: 'refresh-cw'

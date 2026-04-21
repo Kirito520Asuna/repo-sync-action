@@ -41,6 +41,192 @@ extract_repo_name() {
        echo "$url" | sed 's|.*/||' | sed 's|\.git$||'
     fi
 }
+extract_repo_owner() {
+    local url_temp=${1}
+
+    if echo "$url_temp" | grep -q "^git@"; then
+        echo "$url_temp" | sed 's|:|/|g' | awk -F'/' '{print $(NF-1)}'
+    elif echo "$url_temp" | grep -q "^ssh://"; then
+        echo "$url_temp" | awk -F'/' '{print $(NF-1)}'
+    else
+        local url=$(echo "$url_temp" | sed 's|https\?://||g')
+        echo "$url" | awk -F'/' '{print $(NF-1)}'
+    fi
+}
+
+detect_platform() {
+    local url_temp=${1}
+
+    if echo "$url_temp" | grep -q "github.com"; then
+        echo "github"
+    elif echo "$url_temp" | grep -q "gitee.com"; then
+        echo "gitee"
+    elif echo "$url_temp" | grep -q "gitlab.com"; then
+        echo "gitlab"
+    elif echo "$url_temp" | grep -q "gitcode.net"; then
+        echo "gitcode"
+    else
+        echo "unknown"
+    fi
+}
+
+create_pull_request() {
+    local target_url_temp=${1}
+    local target_branch=${2}
+    local source_branch=${3}
+    local token=${4}
+    local username=${5}
+
+    local platform=$(detect_platform "$target_url_temp")
+    local repo_name=$(extract_repo_name "$target_url_temp")
+    local owner=$(extract_repo_owner "$target_url_temp")
+    local pr_title="Sync: ${source_branch} → ${target_branch}"
+    local pr_body="Auto sync from ${source_branch} to ${target_branch}\n\nCreated by repo-sync-action"
+
+    echo "📝 创建 Pull Request: ${pr_title}"
+
+    case "$platform" in
+        github)
+            local api_url="https://api.github.com/repos/${owner}/${repo_name}/pulls"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -H "Authorization: token ${token}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                -H "Content-Type: application/json" \
+                -d "{\"title\":\"${pr_title}\",\"body\":\"${pr_body}\",\"head\":\"${source_branch}\",\"base\":\"${target_branch}\"}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local body=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ]; then
+                local pr_url=$(echo "$body" | grep -o '"html_url":"[^"]*"' | cut -d'"' -f4)
+                echo "✅ PR 创建成功: ${pr_url}"
+                return 0
+            else
+                echo "❌ PR 创建失败 (HTTP ${http_code}): ${body}"
+                return 1
+            fi
+            ;;
+        gitee)
+            local api_url="https://gitee.com/api/v5/repos/${owner}/${repo_name}/pulls"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -d "access_token=${token}&title=${pr_title}&body=${pr_body}&head=${source_branch}&base=${target_branch}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local body=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ]; then
+                local pr_url=$(echo "$body" | grep -o '"html_url":"[^"]*"' | cut -d'"' -f4)
+                echo "✅ PR 创建成功: ${pr_url}"
+                return 0
+            else
+                echo "❌ PR 创建失败 (HTTP ${http_code}): ${body}"
+                return 1
+            fi
+            ;;
+        gitlab)
+            local api_url="https://gitlab.com/api/v4/projects/${owner}%2F${repo_name}/merge_requests"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -H "PRIVATE-TOKEN: ${token}" \
+                -H "Content-Type: application/json" \
+                -d "{\"title\":\"${pr_title}\",\"description\":\"${pr_body}\",\"source_branch\":\"${source_branch}\",\"target_branch\":\"${target_branch}\"}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local body=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ]; then
+                local pr_url=$(echo "$body" | grep -o '"web_url":"[^"]*"' | cut -d'"' -f4)
+                echo "✅ MR 创建成功: ${pr_url}"
+                return 0
+            else
+                echo "❌ MR 创建失败 (HTTP ${http_code}): ${body}"
+                return 1
+            fi
+            ;;
+        gitcode)
+            local api_url="https://gitcode.net/api/v5/repos/${owner}/${repo_name}/pulls"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -d "access_token=${token}&title=${pr_title}&body=${pr_body}&head=${source_branch}&base=${target_branch}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local body=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ]; then
+                local pr_url=$(echo "$body" | grep -o '"html_url":"[^"]*"' | cut -d'"' -f4)
+                echo "✅ PR 创建成功: ${pr_url}"
+                return 0
+            else
+                echo "❌ PR 创建失败 (HTTP ${http_code}): ${body}"
+                return 1
+            fi
+            ;;
+        *)
+            echo "❌ 不支持的平台: ${target_url_temp}"
+            return 1
+            ;;
+    esac
+}
+
+handle_conflict_with_pr() {
+    local target_url_temp=${1}
+    local target_branch=${2}
+    local target_token=${3}
+    local target_username=${4}
+    local log_push=${5}
+    local relation_type=${6}
+
+    echo "🔄 推送分支以创建 PR"
+    git remote add target "$TARGET_URL" 2>/dev/null || true
+
+    local temp_branch="action-${relation_type}-sync-$(openssl rand -hex 4)"
+    if ! retry_with_log "git push target HEAD:refs/heads/${temp_branch}" "$log_push"; then
+        echo "❌ 推送分支失败"
+        git remote remove target 2>/dev/null || true
+        return 1
+    fi
+
+    git remote remove target 2>/dev/null || true
+
+    if create_pull_request "$target_url_temp" "$target_branch" "$temp_branch" "$target_token" "$target_username"; then
+        echo "✅ PR 创建流程完成"
+        return 0
+    else
+        echo "⚠️ PR 创建失败，但分支已推送"
+        return 1
+    fi
+}
+
+handle_merge_conflict() {
+    local target_url_temp=${1}
+    local target_branch=${2}
+    local log_push=${3}
+    local relation_type=${4}
+
+    echo "[$relation_type]🔄 尝试合并 target 分支"
+    git remote add target "$TARGET_URL" 2>/dev/null || true
+
+    if ! retry_with_log "git fetch target '$target_branch' --quiet" "$log_push"; then
+        echo "[$relation_type]❌ 获取 target 分支失败"
+        git remote remove target 2>/dev/null || true
+        return 1
+    fi
+
+    MERGE_OPTS="--no-edit -m \"Merge branch '$target_branch' into sync\""
+    if ! git merge-base HEAD "target/$target_branch" >/dev/null 2>&1; then
+        MERGE_OPTS="--allow-unrelated-histories $MERGE_OPTS"
+    fi
+
+    if ! eval "git merge target/\$target_branch $MERGE_OPTS"; then
+        echo "[$relation_type]❌ 合并冲突，无法自动解决"
+        git merge --abort 2>/dev/null || true
+        git remote remove target 2>/dev/null || true
+        return 1
+    fi
+
+    git remote remove target 2>/dev/null || true
+    echo "[$relation_type]✅ 合并成功，准备推送"
+    PUSH_CMD="git push --progress"
+}
+
 
 # ==================== 日志执行（保留 script -q -c） ====================
 run_with_log() {
@@ -81,6 +267,7 @@ retry_with_log() {
 # ========================================================
 
 check_repo_diff() {
+    local PIR=check_repo_diff
     local source=${1}
     local target=${2}
 
@@ -114,7 +301,7 @@ check_repo_diff() {
     touch "$clone_log"
     if [ ! -d "$repo_name" ]; then
         if ! retry_with_log "git clone '$SOURCE_URL' -b '$source_branch' '$repo_name'" "$clone_log"; then
-            echo "❌ 克隆失败"
+            echo "[$PIR]❌ 克隆失败"
             return 1
         fi
     fi
@@ -127,8 +314,8 @@ check_repo_diff() {
     local SOURCE_SHA=$(git rev-parse HEAD)
     local TARGET_SHA=$(git ls-remote "$TARGET_URL" "$target_branch" 2>/dev/null | awk '{print $1}')
 
-    echo "SHA-SOURCE: $SOURCE_SHA"
-    echo "SHA-TARGET: ${TARGET_SHA:-无}"
+    echo "[$PIR]SHA-SOURCE: $SOURCE_SHA"
+    echo "[$PIR]SHA-TARGET: ${TARGET_SHA:-无}"
 
     # 重置状态
     HAS_DIFF=false
@@ -136,18 +323,18 @@ check_repo_diff() {
     RELATION="unknown"
 
     if [ -z "$TARGET_SHA" ]; then
-        echo "ℹ️ Target 分支不存在，首次推送"
+        echo "[$PIR]ℹ️ Target 分支不存在，首次推送"
         HAS_DIFF=true
         RELATION="init"
     elif [ "$SOURCE_SHA" = "$TARGET_SHA" ]; then
-        echo "✅ SHA 一致，无需更新"
+        echo "[$PIR]✅ SHA 一致，无需更新"
         HAS_DIFF=false
         RELATION="identical"
     else
         git remote add target "$TARGET_URL" 2>/dev/null || true
 
         if ! retry_with_log "git fetch target '$target_branch' --quiet" "$clone_log"; then
-            echo "❌ fetch 失败"
+            echo "[$PIR]❌ fetch 失败"
             HAS_DIFF=true
             CODE_CONFLICT=true
             RELATION="error"
@@ -155,21 +342,21 @@ check_repo_diff() {
             TARGET_REF="target/$target_branch"
 
             if git merge-base --is-ancestor "$TARGET_REF" HEAD; then
-                echo "✅ Fast-forward 更新"
+                echo "[$PIR]✅ Fast-forward 更新"
                 HAS_DIFF=true
                 RELATION="ff"
 
             elif git merge-base --is-ancestor HEAD "$TARGET_REF"; then
-                echo "ℹ️ 无需更新（source 落后于 target）"
+                echo "[$PIR]ℹ️ 无需更新（source 落后于 target）"
                 HAS_DIFF=false
                 RELATION="behind"
 
             else
                 if git merge-base HEAD "$TARGET_REF" >/dev/null 2>&1; then
-                    echo "⚠️ 分支已分叉（diverged）"
+                    echo "[$PIR]⚠️ 分支已分叉（diverged）"
                     RELATION="diverged"
                 else
-                    echo "🚨 无共同历史（unrelated）"
+                    echo "[$PIR]🚨 无共同历史（unrelated）"
                     RELATION="unrelated"
                 fi
                 HAS_DIFF=true
@@ -184,11 +371,19 @@ check_repo_diff() {
 }
 
 push_target_repo() {
+    local PIR=push_target_repo
     local source=${1}
     local target=${2}
     local force_push=${3}
     local git_config=${4}
+    local merge_config=${5}
+    #分支合并操作
+    local diverged_merge_strategy=$(echo "$merge_config" | cut -d '|' -f 1)
+    #无历史分支合并操作
+    local unrelated_merge_strategy=$(echo "$merge_config" | cut -d '|' -f 2)
 
+    diverged_merge_strategy="${diverged_merge_strategy:-MERGE}"
+    unrelated_merge_strategy="${unrelated_merge_strategy:-MERGE}"
     # ===== 恢复：git_config 拆分 =====
     local git_post_buffer=$(echo "$git_config" | cut -d '|' -f 1)
     local git_low_speed_limit=$(echo "$git_config" | cut -d '|' -f 2)
@@ -206,10 +401,10 @@ push_target_repo() {
     local TARGET_URL=$(build_git_url "$target_url_temp" "$target_username" "$target_token")
     local repo_name=$(extract_repo_name "$source_url_temp")
 
-    echo "🚀 推送: ${repo_name} (${source_branch} → ${target_branch})"
+    echo "[$PIR] 🚀 推送: ${repo_name} (${source_branch} → ${target_branch})"
 
     cd "$WORK_DIR/$repo_name" || {
-        echo "❌ 仓库目录不存在: $WORK_DIR/$repo_name"
+        echo "[$PIR] ❌ 仓库目录不存在: $WORK_DIR/$repo_name"
         return 1
     }
 
@@ -227,37 +422,31 @@ push_target_repo() {
             PUSH_CMD="git push --progress"
             ;;
         identical|behind)
-            echo "✅ 无需推送"
+            echo "[$PIR] ✅ 无需推送"
             return 0
             ;;
         diverged)
             if [ "${force_push}" = "true" ]; then
-                echo "⚠️ 强制推送"
+                echo "[$PIR] ⚠️ 强制推送"
                 PUSH_CMD="git push -f --progress"
             else
-                echo "🔄 尝试合并 target 分支"
-                git remote add target "$TARGET_URL" 2>/dev/null || true
-                if ! retry_with_log "git fetch target '$target_branch' --quiet" "$log_push"; then
-                    echo "❌ 获取 target 分支失败"
-                    git remote remove target 2>/dev/null || true
-                    return 1
-                fi
-
-                MERGE_OPTS="--no-edit -m \"Merge branch '$target_branch' into sync\""
-                if ! git merge-base HEAD "target/$target_branch" >/dev/null 2>&1; then
-                    MERGE_OPTS="--allow-unrelated-histories $MERGE_OPTS"
-                fi
-
-                if ! eval "git merge target/\$target_branch $MERGE_OPTS"; then
-                    echo "❌ 合并冲突，无法自动解决"
-                    git merge --abort 2>/dev/null || true
-                    git remote remove target 2>/dev/null || true
-                    return 1
-                fi
-
-                git remote remove target 2>/dev/null || true
-                echo "✅ 合并成功，准备推送"
-                PUSH_CMD="git push --progress"
+                #todo:(当前为合并)MERGE-合并,NEW_PR-新建 PR
+                conflict_strategy="${diverged_merge_strategy}"
+                case "${conflict_strategy}" in
+                    MERGE)
+                        handle_merge_conflict "$target_url_temp" "$target_branch" \
+                                              "$log_push" "$RELATION"
+                        ;;
+                    NEW_PR)
+                        handle_conflict_with_pr  "$target_url_temp" "$target_branch" \
+                                                 "$target_token" "$target_username" \
+                                                 "$log_push" "$RELATION"
+                        ;;
+                    *)
+                        echo "❌ 未知的冲突策略: ${conflict_strategy}"
+                        return 1
+                        ;;
+                esac
             fi
             ;;
         unrelated)
@@ -265,24 +454,22 @@ push_target_repo() {
                 echo "⚠️ 强制推送（允许无共同历史）"
                 PUSH_CMD="git push -f --progress"
             else
-                echo "🔄 尝试合并无共同历史的分支"
-                git remote add target "$TARGET_URL" 2>/dev/null || true
-                if ! retry_with_log "git fetch target '$target_branch' --quiet" "$log_push"; then
-                    echo "❌ 获取 target 分支失败"
-                    git remote remove target 2>/dev/null || true
-                    return 1
-                fi
-
-                if ! git merge "target/$target_branch" --allow-unrelated-histories --no-edit -m "Merge branch '$target_branch' into sync (unrelated histories)"; then
-                    echo "❌ 合并冲突，无法自动解决"
-                    git merge --abort 2>/dev/null || true
-                    git remote remove target 2>/dev/null || true
-                    return 1
-                fi
-
-                git remote remove target 2>/dev/null || true
-                echo "✅ 合并成功，准备推送"
-                PUSH_CMD="git push --progress"
+                conflict_strategy="${unrelated_merge_strategy}"
+                case "${conflict_strategy}" in
+                    MERGE)
+                        handle_merge_conflict "$target_url_temp" "$target_branch" \
+                                              "$log_push" "$RELATION"
+                        ;;
+                    NEW_PR)
+                        handle_conflict_with_pr  "$target_url_temp" "$target_branch" \
+                                                 "$target_token" "$target_username" \
+                                                 "$log_push" "$RELATION"
+                        ;;
+                    *)
+                        echo "❌ 未知的冲突策略: ${conflict_strategy}"
+                        return 1
+                        ;;
+                esac
             fi
             ;;
         *)
@@ -306,11 +493,12 @@ sync() {
     local target=${2}
     local force_push=${3}
     local git_config=${4}
+    local merge_config=${5}
 
     check_repo_diff "${source}" "${target}"
 
     if [ "${HAS_DIFF}" = "true" ]; then
-        push_target_repo "${source}" "${target}" "${force_push}" "${git_config}"
+        push_target_repo "${source}" "${target}" "${force_push}" "${git_config}" "${merge_config}"
     else
         echo "✅ 无差异，跳过"
     fi
@@ -337,9 +525,13 @@ main_sync(){
   local GIT_LOW_SPEED_TIME=${12}
   local PUSH_TIMEOUT=${13}
 
+  local DIVERGED_CONFLICT_STRATEGY=${14}
+  local UNRELATED_CONFLICT_STRATEGY=${15}
+
   local TARGET="${URL_TARGET}|${BRANCH_TARGET}|${USERNAME_TARGET}|${TOKEN_TARGET}"
   local SOURCE="${URL_SOURCE}|${BRANCH_SOURCE}|${USERNAME_SOURCE}|${TOKEN_SOURCE}"
   local GIT_CONFIG="${GIT_POST_BUFFER:-524288000}|${GIT_LOW_SPEED_LIMIT:-1000}|${GIT_LOW_SPEED_TIME:-60}|${PUSH_TIMEOUT:-3540}"
+  local MERGE_CONFIG="${DIVERGED_CONFLICT_STRATEGY:-MERGE}|${UNRELATED_CONFLICT_STRATEGY:-MERGE}"
 
-  sync "${SOURCE}" "${TARGET}" "${FORCE_PUSH}" "${GIT_CONFIG}"
+  sync "${SOURCE}" "${TARGET}" "${FORCE_PUSH}" "${GIT_CONFIG}" "${MERGE_CONFIG}"
 }
