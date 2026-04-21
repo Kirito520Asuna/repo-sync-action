@@ -46,6 +46,20 @@ GitHub Action 用于同步仓库代码到不同平台（如 GitHub → Gitee）
 | `git_low_speed_limit` | 否 | `'1000'` | 最低速度限制（字节/秒） | `'1000'` |
 | `git_low_speed_time` | 否 | `'60'` | 低速超时时间（秒） | `'60'` |
 | `push_timeout` | 否 | `'3540'` | 推送超时时间（秒） | `'3540'` (59分钟) |
+| `diverged_conflict_strategy` | 否 | `'MERGE'` | 分支分叉时的冲突策略 | `'MERGE'` / `'NEW_PR'` |
+| `unrelated_conflict_strategy` | 否 | `'MERGE'` | 无共同历史时的冲突策略 | `'MERGE'` / `'NEW_PR'` |
+
+## 冲突策略说明
+
+**MERGE**: 自动合并目标分支后推送
+- 适用于可以自动解决冲突的场景
+- diverged: 尝试普通 merge
+- unrelated: 使用 `--allow-unrelated-histories` 强制合并
+
+**NEW_PR**: 推送临时分支并创建 Pull Request
+- 适用于需要人工审查冲突的场景
+- 临时分支命名格式: `action-{diverged|unrelated}-sync-{随机值}`
+- 支持平台: GitHub, Gitee, GitLab, GitCode
 
 ## 配置 Secrets
 
