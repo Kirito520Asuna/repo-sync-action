@@ -442,6 +442,10 @@ push_target_repo() {
                                                  "$target_token" "$target_username" \
                                                  "$log_push" "$RELATION"
                         ;;
+                    NOTHING)
+                        echo "✅ 无需推送"
+                        return 0
+                        ;;
                     *)
                         echo "❌ 未知的冲突策略: ${conflict_strategy}"
                         return 1
@@ -464,6 +468,10 @@ push_target_repo() {
                         handle_conflict_with_pr  "$target_url_temp" "$target_branch" \
                                                  "$target_token" "$target_username" \
                                                  "$log_push" "$RELATION"
+                        ;;
+                    NOTHING)
+                        echo "✅ 无需推送"
+                        return 0
                         ;;
                     *)
                         echo "❌ 未知的冲突策略: ${conflict_strategy}"

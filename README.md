@@ -46,8 +46,8 @@ GitHub Action 用于同步仓库代码到不同平台（如 GitHub → Gitee）
 | `git_low_speed_limit` | 否 | `'1000'` | 最低速度限制（字节/秒） | `'1000'` |
 | `git_low_speed_time` | 否 | `'60'` | 低速超时时间（秒） | `'60'` |
 | `push_timeout` | 否 | `'3540'` | 推送超时时间（秒） | `'3540'` (59分钟) |
-| `diverged_conflict_strategy` | 否 | `'MERGE'` | 分支分叉时的冲突策略 | `'MERGE'` / `'NEW_PR'` |
-| `unrelated_conflict_strategy` | 否 | `'MERGE'` | 无共同历史时的冲突策略 | `'MERGE'` / `'NEW_PR'` |
+| `diverged_conflict_strategy` | 否 | `'MERGE'` | 分支分叉时的冲突策略 | `'MERGE'` / `'NEW_PR'` / `'NOTHING'` |
+| `unrelated_conflict_strategy` | 否 | `'MERGE'` | 无共同历史时的冲突策略 | `'MERGE'` / `'NEW_PR'` / `'NOTHING'` |
 
 ## 冲突策略说明
 
@@ -60,6 +60,11 @@ GitHub Action 用于同步仓库代码到不同平台（如 GitHub → Gitee）
 - 适用于需要人工审查冲突的场景
 - 临时分支命名格式: `action-{diverged|unrelated}-sync-{随机值}`
 - 支持平台: GitHub, Gitee, GitLab, GitCode
+
+**NOTHING**: 放弃推送，跳过本次同步
+- 适用于保守策略，避免自动处理冲突
+- 不会修改目标仓库任何内容
+- 适合需要完全手动控制的场景
 
 ## 配置 Secrets
 
