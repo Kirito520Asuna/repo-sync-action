@@ -215,7 +215,7 @@ handle_merge_conflict() {
         MERGE_OPTS="--allow-unrelated-histories $MERGE_OPTS"
     fi
 
-    if ! eval "git merge target/\$target_branch $MERGE_OPTS"; then
+    if ! git merge "target/${target_branch}" $MERGE_OPTS; then
         echo "[$relation_type]❌ 合并冲突，无法自动解决"
         git merge --abort 2>/dev/null || true
         git remote remove target 2>/dev/null || true
