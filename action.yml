@@ -65,6 +65,27 @@ inputs:
     description: 'Diverged conflict strategy (MERGE/NEW_PR)'
     required: false
     default: 'MERGE'
+  sync_releases:
+    description: 'Enable release synchronization (true/false)'
+    required: false
+    default: 'false'
+  release_tag:
+    description: 'Release tag to sync (required if sync_releases is true)'
+    required: false
+  release_name:
+    description: 'Release name (optional, will use source release name if not provided)'
+    required: false
+  release_body:
+    description: 'Release body/description (optional, will use source release body if not provided)'
+    required: false
+  release_draft:
+    description: 'Create release as draft (true/false)'
+    required: false
+    default: 'false'
+  release_prerelease:
+    description: 'Create release as prerelease (true/false)'
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -104,6 +125,34 @@ runs:
                   "$FORCE_PUSH" "$GIT_POST_BUFFER" "$GIT_LOW_SPEED_LIMIT" "$GIT_LOW_SPEED_TIME" "$PUSH_TIMEOUT" \
                   "$DIVERGED_CONFLICT_STRATEGY" "$UNRELATED_CONFLICT_STRATEGY"
 
+    - name: Sync Releases
+      if: ${{ inputs.sync_releases == 'true' }}
+      shell: bash
+      run: |        
+        SCRIPT_DIR="${{ github.action_path }}"
+        source "$SCRIPT_DIR/bash/shell.sh"
+        
+        if [ -z "${{ inputs.release_tag }}" ]; then
+          echo "❌ release_tag is required when sync_releases is true"
+          exit 1
+        fi
+        
+        URL_SOURCE="https://${{ inputs.src }}"
+        TOKEN_SOURCE="${{ inputs.src_token }}"
+        
+        URL_TARGET="https://${{ inputs.dst }}"
+        TOKEN_TARGET="${{ inputs.dst_token }}"
+        
+        RELEASE_TAG="${{ inputs.release_tag }}"
+        RELEASE_NAME="${{ inputs.release_name }}"
+        RELEASE_BODY="${{ inputs.release_body }}"
+        RELEASE_DRAFT="${{ inputs.release_draft }}"
+        RELEASE_PRERELEASE="${{ inputs.release_prerelease }}"
+        
+        main_sync_release "$URL_SOURCE" "$TOKEN_SOURCE" \
+                          "$URL_TARGET" "$TOKEN_TARGET" \
+                          "$RELEASE_TAG" "$RELEASE_NAME" "$RELEASE_BODY" \
+                          "$RELEASE_DRAFT" "$RELEASE_PRERELEASE"
 branding:
   icon: 'refresh-cw'
   color: 'blue'

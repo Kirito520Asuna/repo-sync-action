@@ -564,7 +564,223 @@ main_sync(){
 
   sync "${SOURCE}" "${TARGET}" "${FORCE_PUSH}" "${GIT_CONFIG}" "${MERGE_CONFIG}"
 }
+# ==================== Release 同步脚本 ====================
+# 支持多平台 Release 资产同步
+sync_release() {
+    local source_url_temp=${1}
+    local source_token=${2}
+    local target_url_temp=${3}
+    local target_token=${4}
+    local release_tag=${5}
+    local release_name=${6}
+    local release_body=${7}
+    local draft=${8:-false}
+    local prerelease=${9:-false}
 
+    local platform=$(detect_platform "$source_url_temp")
+    local repo_name=$(extract_repo_name "$source_url_temp")
+    local source_owner=$(extract_repo_owner "$source_url_temp")
+    local target_owner=$(extract_repo_owner "$target_url_temp")
+    local target_repo=$(extract_repo_name "$target_url_temp")
+
+    # 如果未指定 release_tag，获取所有 Release
+    if [ -z "$release_tag" ]; then
+        echo "🚀 开始同步所有 Release"
+        sync_all_releases "$platform" "$source_owner" "$repo_name" "$source_token" \
+                         "$target_url_temp" "$target_token" "$draft" "$prerelease"
+        return $?
+    fi
+
+    echo "🚀 开始同步 Release: ${release_tag}"
+
+    # 获取源仓库 Release 信息
+    echo "📥 获取源仓库 Release 信息..."
+    local release_info=$(get_release_info "$platform" "$source_owner" "$repo_name" "$release_tag" "$source_token")
+
+    if [ -z "$release_info" ]; then
+        echo "❌ 未找到 Release: ${release_tag}"
+        return 1
+    fi
+
+    # 解析 Release 信息
+    local tag_name=$(echo "$release_info" | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+    local name=$(echo "$release_info" | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)
+    local body=$(echo "$release_info" | grep -o '"body":"[^"]*"' | head -1 | cut -d'"' -f4)
+    local is_draft=$(echo "$release_info" | grep -o '"draft":[a-z]*' | cut -d':' -f2)
+    local is_prerelease=$(echo "$release_info" | grep -o '"prerelease":[a-z]*' | cut -d':' -f2)
+
+    # 使用传入参数覆盖
+    [ -n "$release_name" ] && name="$release_name"
+    [ -n "$release_body" ] && body="$release_body"
+    [ "$draft" != "false" ] && is_draft="true"
+    [ "$prerelease" != "false" ] && is_prerelease="true"
+
+    echo "📋 Release 信息:"
+    echo "   Tag: ${tag_name}"
+    echo "   Name: ${name}"
+    echo "   Draft: ${is_draft}"
+    echo "   Prerelease: ${is_prerelease}"
+
+    # 下载所有资产
+    local assets_dir=$(mktemp -d)
+    echo "💾 下载资产到: ${assets_dir}"
+
+    download_release_assets "$platform" "$source_owner" "$repo_name" "$release_tag" "$source_token" "$assets_dir"
+
+    # 在目标仓库创建 Release
+    echo "📤 在目标仓库创建 Release..."
+    local target_platform=$(detect_platform "$target_url_temp")
+
+    create_release "$target_platform" "$target_owner" "$target_repo" \
+        "$tag_name" "$name" "$body" "$is_draft" "$is_prerelease" "$target_token"
+
+    # 上传资产到目标 Release
+    upload_release_assets "$target_platform" "$target_owner" "$target_repo" \
+        "$tag_name" "$target_token" "$assets_dir"
+
+    # 清理临时目录
+    rm -rf "$assets_dir"
+
+    echo "✅ Release 同步完成"
+}
+sync_all_releases() {
+    local platform=${1}
+    local source_owner=${2}
+    local source_repo=${3}
+    local source_token=${4}
+    local target_url_temp=${5}
+    local target_token=${6}
+    local default_draft=${7}
+    local default_prerelease=${8}
+
+    local target_platform=$(detect_platform "$target_url_temp")
+    local target_owner=$(extract_repo_owner "$target_url_temp")
+    local target_repo=$(extract_repo_name "$target_url_temp")
+
+    echo "📋 获取所有 Release 列表..."
+
+    local releases_list=$(get_all_releases "$platform" "$source_owner" "$source_repo" "$source_token")
+
+    if [ -z "$releases_list" ]; then
+        echo "ℹ️ 源仓库没有 Release"
+        return 0
+    fi
+
+    # 提取所有 tag_name
+    local tags=$(echo "$releases_list" | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+
+    if [ -z "$tags" ]; then
+        echo "ℹ️ 未找到任何 Release 标签"
+        return 0
+    fi
+
+    local total=$(echo "$tags" | wc -l)
+    local count=0
+    local success=0
+    local failed=0
+
+    echo "📦 发现 ${total} 个 Release，开始同步..."
+
+    echo "$tags" | while read -r tag; do
+        if [ -z "$tag" ]; then
+            continue
+        fi
+
+        count=$((count + 1))
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🔄 处理 Release ${count}/${total}: ${tag}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # 获取单个 Release 信息
+        local release_info=$(get_release_info "$platform" "$source_owner" "$source_repo" "$tag" "$source_token")
+
+        if [ -z "$release_info" ]; then
+            echo "⚠️ 无法获取 Release 信息: ${tag}，跳过"
+            failed=$((failed + 1))
+            continue
+        fi
+
+        # 解析 Release 信息
+        local name=$(echo "$release_info" | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)
+        local body=$(echo "$release_info" | grep -o '"body":"[^"]*"' | head -1 | cut -d'"' -f4)
+        local is_draft=$(echo "$release_info" | grep -o '"draft":[a-z]*' | cut -d':' -f2)
+        local is_prerelease=$(echo "$release_info" | grep -o '"prerelease":[a-z]*' | cut -d':' -f2)
+
+        # 使用默认值
+        [ "$default_draft" != "false" ] && is_draft="true"
+        [ "$default_prerelease" != "false" ] && is_prerelease="true"
+
+        # 下载资产
+        local assets_dir=$(mktemp -d)
+        download_release_assets "$platform" "$source_owner" "$source_repo" "$tag" "$source_token" "$assets_dir"
+
+        # 创建 Release
+        if create_release "$target_platform" "$target_owner" "$target_repo" \
+            "$tag" "$name" "$body" "$is_draft" "$is_prerelease" "$target_token"; then
+
+            # 上传资产
+            upload_release_assets "$target_platform" "$target_owner" "$target_repo" \
+                "$tag" "$target_token" "$assets_dir"
+
+            success=$((success + 1))
+            echo "✅ Release ${tag} 同步成功"
+        else
+            failed=$((failed + 1))
+            echo "❌ Release ${tag} 同步失败"
+        fi
+
+        # 清理临时目录
+        rm -rf "$assets_dir"
+    done
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🎉 Release 同步完成"
+    echo "   总计: ${total}"
+    echo "   成功: ${success}"
+    echo "   失败: ${failed}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+get_all_releases() {
+    local platform=${1}
+    local owner=${2}
+    local repo=${3}
+    local token=${4}
+
+    case "$platform" in
+        github)
+            local api_url="https://api.github.com/repos/${owner}/${repo}/releases"
+            curl -s -H "Authorization: token ${token}" \
+                 -H "Accept: application/vnd.github.v3+json" \
+                 "$api_url"
+            ;;
+        gitee)
+            local api_url="https://gitee.com/api/v5/repos/${owner}/${repo}/releases"
+            curl -s -d "access_token=${token}" "$api_url"
+            ;;
+        gitlab)
+            local project_id="${owner}%2F${repo}"
+            local api_url="https://gitlab.com/api/v4/projects/${project_id}/releases"
+            curl -s -H "PRIVATE-TOKEN: ${token}" "$api_url"
+            ;;
+        gitcode)
+            local api_url="https://gitcode.net/api/v5/repos/${owner}/${repo}/releases"
+            curl -s -d "access_token=${token}" "$api_url"
+            ;;
+        cnb)
+            local api_url="https://cnb.cool/api/v1/repos/${owner}/${repo}/releases"
+            curl -s -H "Authorization: Bearer ${token}" \
+                 -H "Content-Type: application/json" \
+                 "$api_url"
+            ;;
+        *)
+            echo "❌ 不支持的平台: ${platform}"
+            return 1
+            ;;
+    esac
+}
 get_release_info() {
     local platform=${1}
     local owner=${2}
@@ -862,4 +1078,21 @@ upload_single_asset() {
             fi
             ;;
     esac
+}
+
+main_sync_release(){
+    local URL_SOURCE=${1}
+    local TOKEN_SOURCE=${2}
+    local URL_TARGET=${3}
+    local TOKEN_TARGET=${4}
+    local RELEASE_TAG=${5}
+    local RELEASE_NAME=${6}
+    local RELEASE_BODY=${7}
+    local DRAFT=${8:-false}
+    local PRERELEASE=${9:-false}
+
+    sync_release "$URL_SOURCE" "$TOKEN_SOURCE" \
+                 "$URL_TARGET" "$TOKEN_TARGET" \
+                 "$RELEASE_TAG" "$RELEASE_NAME" "$RELEASE_BODY" \
+                 "$DRAFT" "$PRERELEASE"
 }
