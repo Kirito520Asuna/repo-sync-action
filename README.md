@@ -49,6 +49,17 @@ GitHub Action 用于同步仓库代码到不同平台（如 GitHub → Gitee）
 | `diverged_conflict_strategy` | 否 | `'MERGE'` | 分支分叉时的冲突策略 | `'MERGE'` / `'NEW_PR'` / `'NOTHING'` |
 | `unrelated_conflict_strategy` | 否 | `'MERGE'` | 无共同历史时的冲突策略 | `'MERGE'` / `'NEW_PR'` / `'NOTHING'` |
 
+### Release 同步参数
+
+| 参数 | 必填 | 默认值 | 说明 | 示例 |
+|------|------|--------|------|------|
+| `sync_releases` | 否 | `'false'` | 启用 Release 同步 | `'true'` / `'false'` |
+| `release_tag` | 否 | - | Release 标签（不填则同步所有） | `v1.0.0` |
+| `release_name` | 否 | - | Release 名称（覆盖源名称） | `Release v1.0.0` |
+| `release_body` | 否 | - | Release 描述（覆盖源描述） | `Release notes...` |
+| `release_draft` | 否 | `'false'` | 创建为草稿 | `'true'` / `'false'` |
+| `release_prerelease` | 否 | `'false'` | 创建为预发布 | `'true'` / `'false'` |
+
 ## 冲突策略说明
 
 **MERGE**: 自动合并目标分支后推送
@@ -65,6 +76,13 @@ GitHub Action 用于同步仓库代码到不同平台（如 GitHub → Gitee）
 - 适用于保守策略，避免自动处理冲突
 - 不会修改目标仓库任何内容
 - 适合需要完全手动控制的场景
+
+
+## 支持的平台
+
+✅ **仓库同步**: GitHub, Gitee, GitLab, GitCode, CNB.Cool  
+✅ **Release 同步**: GitHub, Gitee, GitLab, GitCode, CNB.Cool  
+✅ **PR/MR 创建**: GitHub, Gitee, GitLab, GitCode, CNB.Cool
 
 ## 配置 Secrets
 
@@ -84,6 +102,14 @@ GitHub Action 用于同步仓库代码到不同平台（如 GitHub → Gitee）
 **Gitee Token**:
 1. 访问 https://gitee.com/profile/personal_access_tokens
 2. 生成新令牌，勾选 `projects` 权限
+
+**GitLab Token**:
+1. 访问 https://gitlab.com/-/profile/personal_access_tokens
+2. 生成新令牌，勾选 `api` 和 `write_repository` 权限
+
+**CNB Token**:
+1. 访问 CNB 个人设置页面
+2. 生成 Bearer Token，确保有仓库读写权限
 
 ## 完整 Workflow 示例
 ```yaml
@@ -139,6 +165,51 @@ jobs:
           #force_push: 'true'
 
 ```
+### 同步仓库 + Release
+```yaml
+name: Full Sync (Code + Releases) 
+on: 
+workflow_dispatch: 
+# 手动触发 
+jobs: 
+  sync: 
+    runs-on: ubuntu-latest 
+    steps: 
+      - name: Sync Code and Release to CNB
+        uses: Kirito520Asuna/repo-sync-action@main 
+        with: 
+            src: github.com/username/repo.git 
+            src_branch: main 
+            src_username: ${{ secrets.GITHUB_USERNAME }} 
+            src_token: ${{ secrets.GITHUB_TOKEN }} 
+            dst: cnb.cool/username/repo.git 
+            dst_branch: master 
+            dst_username: ${{ secrets.CNB_USERNAME }} 
+            dst_token: ${{ secrets.CNB_TOKEN }} 
+            force_push: 'true' 
+            sync_releases: 'true' # 不指定 release_tag，自动同步当前触发的 tag release_tag: ${{ github.ref_name }}
+```
+### 批量同步所有 Release
+```yaml
+name: Sync All Releases 
+on: 
+workflow_dispatch: 
+# 手动触发 
+jobs: 
+  sync: 
+    runs-on: ubuntu-latest 
+    steps: 
+      - name: Sync All Releases to Gitee 
+        uses: Kirito520Asuna/repo-sync-action@main 
+        with: 
+            src: github.com/username/repo.git 
+            src_username: ${{ secrets.GITHUB_USERNAME }} 
+            src_token: ${{ secrets.GITHUB_TOKEN }} 
+            dst: gitee.com/username/repo.git 
+            dst_username: ${{ secrets.GITEE_USERNAME }} 
+            dst_token: ${{ secrets.GITEE_TOKEN }} 
+            sync_releases: 'true' # 不指定 release_tag，自动同步所有 Release
+```
 ## 注意事项
 
 ⚠️ **重要提示**：
@@ -148,3 +219,6 @@ jobs:
 - 目标仓库需要提前创建好
 - 首次同步建议使用 `force_push: 'true'`
 - 大仓库可调整 `git_post_buffer` 和 `push_timeout` 参数
+- Release 同步会自动下载并上传所有资产文件
+- 全量 Release 同步会按顺序处理，显示进度统计
+- CNB.Cool 平台使用 Bearer Token 认证方式
