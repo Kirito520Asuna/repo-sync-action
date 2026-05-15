@@ -661,25 +661,40 @@ sync_all_releases() {
 
     local releases_list=$(get_all_releases "$platform" "$source_owner" "$source_repo" "$source_token")
 
-    if [ -z "$releases_list" ]; then
-        echo "ℹ️ 源仓库没有 Release"
+    # 调试：输出 API 响应
+    echo "🔍 API 响应长度: ${#releases_list} 字符"
+    if [ ${#releases_list} -gt 500 ]; then
+        echo "📄 API 响应预览: ${releases_list:0:500}..."
+    else
+        echo "📄 API 响应: ${releases_list}"
+    fi
+
+    if [ -z "$releases_list" ] || echo "$releases_list" | grep -q "Not Found\|message.*not found\|404"; then
+        echo "️ 源仓库没有 Release 或访问被拒绝"
         return 0
     fi
 
     # 提取所有 tag_name
-    local tags=$(echo "$releases_list" | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+    local tags=$(echo "$releases_list" | grep -oP '"tag_name"\s*:\s*"[^"]*"' | grep -oP '"[^"]*"$' | tr -d '"')
 
+    # 备用解析方式（兼容不同 grep 版本）
     if [ -z "$tags" ]; then
-        echo "ℹ️ 未找到任何 Release 标签"
-        return 0
+        tags=$(echo "$releases_list" | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
     fi
 
-    local total=$(echo "$tags" | wc -l)
+    if [ -z "$tags" ]; then
+        echo "⚠️ 无法解析 Release 标签，API 可能返回了错误"
+        echo "🔍 响应内容: ${releases_list}"
+        return 1
+    fi
+
+    local total=$(echo "$tags" | wc -l | tr -d ' ')
     local count=0
     local success=0
     local failed=0
 
     echo "📦 发现 ${total} 个 Release，开始同步..."
+    echo "📋 Release 列表: $(echo "$tags" | tr '\n' ', ' | sed 's/,$//')"
 
     echo "$tags" | while read -r tag; do
         if [ -z "$tag" ]; then
@@ -689,14 +704,14 @@ sync_all_releases() {
         count=$((count + 1))
         echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "🔄 处理 Release ${count}/${total}: ${tag}"
+        echo " 处理 Release ${count}/${total}: ${tag}"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
         # 获取单个 Release 信息
         local release_info=$(get_release_info "$platform" "$source_owner" "$source_repo" "$tag" "$source_token")
 
-        if [ -z "$release_info" ]; then
-            echo "⚠️ 无法获取 Release 信息: ${tag}，跳过"
+        if [ -z "$release_info" ] || echo "$release_info" | grep -q "Not Found\|404"; then
+            echo "️ 无法获取 Release 信息: ${tag}，跳过"
             failed=$((failed + 1))
             continue
         fi
@@ -727,7 +742,7 @@ sync_all_releases() {
             echo "✅ Release ${tag} 同步成功"
         else
             failed=$((failed + 1))
-            echo "❌ Release ${tag} 同步失败"
+            echo " Release ${tag} 同步失败"
         fi
 
         # 清理临时目录
