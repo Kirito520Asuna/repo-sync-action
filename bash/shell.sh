@@ -65,6 +65,8 @@ detect_platform() {
         echo "gitlab"
     elif echo "$url_temp" | grep -q "gitcode.net"; then
         echo "gitcode"
+    elif echo "$url_temp" | grep -q "cnb.cool"; then
+        echo "cnb"
     else
         echo "unknown"
     fi
@@ -151,6 +153,25 @@ create_pull_request() {
             local body=$(echo "$response" | sed '$d')
 
             if [ "$http_code" = "201" ]; then
+                local pr_url=$(echo "$body" | grep -o '"html_url":"[^"]*"' | cut -d'"' -f4)
+                echo "✅ PR 创建成功: ${pr_url}"
+                return 0
+            else
+                echo "❌ PR 创建失败 (HTTP ${http_code}): ${body}"
+                return 1
+            fi
+            ;;
+       cnb)
+            local api_url="https://cnb.cool/api/v1/repos/${owner}/${repo_name}/pulls"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -H "Authorization: Bearer ${token}" \
+                -H "Content-Type: application/json" \
+                -d "{\"title\":\"${pr_title}\",\"body\":\"${pr_body}\",\"head\":\"${source_branch}\",\"base\":\"${target_branch}\"}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local body=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
                 local pr_url=$(echo "$body" | grep -o '"html_url":"[^"]*"' | cut -d'"' -f4)
                 echo "✅ PR 创建成功: ${pr_url}"
                 return 0
@@ -542,4 +563,303 @@ main_sync(){
   local MERGE_CONFIG="${DIVERGED_CONFLICT_STRATEGY:-MERGE}|${UNRELATED_CONFLICT_STRATEGY:-MERGE}"
 
   sync "${SOURCE}" "${TARGET}" "${FORCE_PUSH}" "${GIT_CONFIG}" "${MERGE_CONFIG}"
+}
+
+get_release_info() {
+    local platform=${1}
+    local owner=${2}
+    local repo=${3}
+    local tag=${4}
+    local token=${5}
+
+    case "$platform" in
+        github)
+            local api_url="https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}"
+            curl -s -H "Authorization: token ${token}" \
+                 -H "Accept: application/vnd.github.v3+json" \
+                 "$api_url"
+            ;;
+        gitee)
+            local api_url="https://gitee.com/api/v5/repos/${owner}/${repo}/releases/tags/${tag}"
+            curl -s -d "access_token=${token}" "$api_url"
+            ;;
+        gitlab)
+            local project_id="${owner}%2F${repo}"
+            local api_url="https://gitlab.com/api/v4/projects/${project_id}/releases/${tag}"
+            curl -s -H "PRIVATE-TOKEN: ${token}" "$api_url"
+            ;;
+        gitcode)
+            local api_url="https://gitcode.net/api/v5/repos/${owner}/${repo}/releases/tags/${tag}"
+            curl -s -d "access_token=${token}" "$api_url"
+            ;;
+        cnb)
+            local api_url="https://cnb.cool/api/v1/repos/${owner}/${repo}/releases/tags/${tag}"
+            curl -s -H "Authorization: Bearer ${token}" \
+                 -H "Content-Type: application/json" \
+                 "$api_url"
+            ;;
+        *)
+            echo "❌ 不支持的平台: ${platform}"
+            return 1
+            ;;
+    esac
+}
+
+download_release_assets() {
+    local platform=${1}
+    local owner=${2}
+    local repo=${3}
+    local tag=${4}
+    local token=${5}
+    local assets_dir=${6}
+
+    local release_info=$(get_release_info "$platform" "$owner" "$repo" "$tag" "$token")
+
+    # 提取资产 URL 和名称
+    local asset_count=$(echo "$release_info" | grep -o '"browser_download_url"' | wc -l)
+
+    if [ "$asset_count" -eq 0 ]; then
+        echo "ℹ️ 该 Release 没有资产文件"
+        return 0
+    fi
+
+    echo "📦 发现 ${asset_count} 个资产文件"
+
+    case "$platform" in
+        github)
+            echo "$release_info" | grep -o '"browser_download_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
+                local filename=$(basename "$url")
+                echo "⬇️ 下载: ${filename}"
+                curl -L -H "Authorization: token ${token}" \
+                     -H "Accept: application/octet-stream" \
+                     -o "${assets_dir}/${filename}" \
+                     "$url"
+            done
+            ;;
+        gitee)
+            echo "$release_info" | grep -o '"browser_download_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
+                local filename=$(basename "$url")
+                echo "⬇️ 下载: ${filename}"
+                curl -L -d "access_token=${token}" -o "${assets_dir}/${filename}" "$url"
+            done
+            ;;
+        gitlab)
+            echo "$release_info" | grep -o '"direct_asset_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
+                local filename=$(basename "$url")
+                echo "⬇️ 下载: ${filename}"
+                curl -L -H "PRIVATE-TOKEN: ${token}" -o "${assets_dir}/${filename}" "$url"
+            done
+            ;;
+        gitcode)
+            echo "$release_info" | grep -o '"browser_download_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
+                local filename=$(basename "$url")
+                echo "⬇️ 下载: ${filename}"
+                curl -L -d "access_token=${token}" -o "${assets_dir}/${filename}" "$url"
+            done
+            ;;
+        cnb)
+            echo "$release_info" | grep -o '"browser_download_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
+                local filename=$(basename "$url")
+                echo "⬇️ 下载: ${filename}"
+                curl -L -H "Authorization: Bearer ${token}" \
+                     -H "Accept: application/octet-stream" \
+                     -o "${assets_dir}/${filename}" \
+                     "$url"
+            done
+            ;;
+    esac
+}
+
+create_release() {
+    local platform=${1}
+    local owner=${2}
+    local repo=${3}
+    local tag_name=${4}
+    local name=${5}
+    local body=${6}
+    local draft=${7}
+    local prerelease=${8}
+    local token=${9}
+
+    case "$platform" in
+        github)
+            local api_url="https://api.github.com/repos/${owner}/${repo}/releases"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -H "Authorization: token ${token}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                -H "Content-Type: application/json" \
+                -d "{\"tag_name\":\"${tag_name}\",\"name\":\"${name}\",\"body\":\"${body}\",\"draft\":${draft},\"prerelease\":${prerelease}}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local result=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+                echo "✅ GitHub Release 创建成功"
+            else
+                echo "❌ GitHub Release 创建失败 (HTTP ${http_code}): ${result}"
+                return 1
+            fi
+            ;;
+        gitee)
+            local api_url="https://gitee.com/api/v5/repos/${owner}/${repo}/releases"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -d "access_token=${token}&tag_name=${tag_name}&name=${name}&body=${body}&draft=${draft}&prerelease=${prerelease}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local result=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ]; then
+                echo "✅ Gitee Release 创建成功"
+            else
+                echo "❌ Gitee Release 创建失败 (HTTP ${http_code}): ${result}"
+                return 1
+            fi
+            ;;
+        gitlab)
+            local project_id="${owner}%2F${repo}"
+            local api_url="https://gitlab.com/api/v4/projects/${project_id}/releases"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -H "PRIVATE-TOKEN: ${token}" \
+                -H "Content-Type: application/json" \
+                -d "{\"name\":\"${name}\",\"tag_name\":\"${tag_name}\",\"description\":\"${body}\"}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local result=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+                echo "✅ GitLab Release 创建成功"
+            else
+                echo "❌ GitLab Release 创建失败 (HTTP ${http_code}): ${result}"
+                return 1
+            fi
+            ;;
+        gitcode)
+            local api_url="https://gitcode.net/api/v5/repos/${owner}/${repo}/releases"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -d "access_token=${token}&tag_name=${tag_name}&name=${name}&body=${body}&draft=${draft}&prerelease=${prerelease}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local result=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ]; then
+                echo "✅ GitCode Release 创建成功"
+            else
+                echo "❌ GitCode Release 创建失败 (HTTP ${http_code}): ${result}"
+                return 1
+            fi
+            ;;
+        cnb)
+            local api_url="https://cnb.cool/api/v1/repos/${owner}/${repo}/releases"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -H "Authorization: Bearer ${token}" \
+                -H "Content-Type: application/json" \
+                -d "{\"tag_name\":\"${tag_name}\",\"name\":\"${name}\",\"body\":\"${body}\",\"draft\":${draft},\"prerelease\":${prerelease}}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            local result=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+                echo "✅ CNB Release 创建成功"
+            else
+                echo "❌ CNB Release 创建失败 (HTTP ${http_code}): ${result}"
+                return 1
+            fi
+            ;;
+    esac
+}
+
+
+upload_single_asset() {
+    local platform=${1}
+    local owner=${2}
+    local repo=${3}
+    local tag_name=${4}
+    local token=${5}
+    local file_path=${6}
+    local filename=${7}
+
+    case "$platform" in
+        github)
+            # 先获取 release ID
+            local release_info=$(get_release_info "github" "$owner" "$repo" "$tag_name" "$token")
+            local release_id=$(echo "$release_info" | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
+
+            local upload_url="https://uploads.github.com/repos/${owner}/${repo}/releases/${release_id}/assets?name=${filename}"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$upload_url" \
+                -H "Authorization: token ${token}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"${file_path}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "201" ]; then
+                echo "   ✅ GitHub 资产上传成功"
+            else
+                echo "   ❌ GitHub 资产上传失败 (HTTP ${http_code})"
+            fi
+            ;;
+        gitee)
+            local api_url="https://gitee.com/api/v5/repos/${owner}/${repo}/releases/${tag_name}/attach_files"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -F "access_token=${token}" \
+                -F "file=@${file_path}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "201" ]; then
+                echo "   ✅ Gitee 资产上传成功"
+            else
+                echo "   ❌ Gitee 资产上传失败 (HTTP ${http_code})"
+            fi
+            ;;
+        gitlab)
+            local project_id="${owner}%2F${repo}"
+            local api_url="https://gitlab.com/api/v4/projects/${project_id}/releases/${tag_name}/assets/links"
+
+            # GitLab 需要先上传到项目文件，然后创建链接
+            local upload_url="https://gitlab.com/api/v4/projects/${project_id}/uploads"
+            local upload_response=$(curl -s -H "PRIVATE-TOKEN: ${token}" \
+                -F "file=@${file_path}" "$upload_url")
+
+            local file_url=$(echo "$upload_response" | grep -o '"url":"[^"]*"' | cut -d'"' -f4)
+
+            if [ -n "$file_url" ]; then
+                curl -s -X POST "$api_url" \
+                    -H "PRIVATE-TOKEN: ${token}" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"name\":\"${filename}\",\"url\":\"${file_url}\"}" > /dev/null
+                echo "   ✅ GitLab 资产上传成功"
+            else
+                echo "   ❌ GitLab 资产上传失败"
+            fi
+            ;;
+        gitcode)
+            local api_url="https://gitcode.net/api/v5/repos/${owner}/${repo}/releases/${tag_name}/attach_files"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+                -F "access_token=${token}" \
+                -F "file=@${file_path}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "201" ]; then
+                echo "   ✅ GitCode 资产上传成功"
+            else
+                echo "   ❌ GitCode 资产上传失败 (HTTP ${http_code})"
+            fi
+            ;;
+        cnb)
+            local release_info=$(get_release_info "cnb" "$owner" "$repo" "$tag_name" "$token")
+            local release_id=$(echo "$release_info" | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
+
+            local upload_url="https://cnb.cool/api/v1/repos/${owner}/${repo}/releases/${release_id}/assets?name=${filename}"
+            local response=$(curl -s -w "\n%{http_code}" -X POST "$upload_url" \
+                -H "Authorization: Bearer ${token}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"${file_path}")
+
+            local http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+                echo "   ✅ CNB 资产上传成功"
+            else
+                echo "   ❌ CNB 资产上传失败 (HTTP ${http_code})"
+            fi
+            ;;
+    esac
 }
