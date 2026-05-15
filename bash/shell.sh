@@ -846,56 +846,87 @@ download_release_assets() {
 
     local release_info=$(get_release_info "$platform" "$owner" "$repo" "$tag" "$token")
 
+    # 调试：输出 Release 信息
+    if [ -z "$release_info" ] || echo "$release_info" | grep -q "Not Found\|404\|message"; then
+        echo "️ 获取 Release 信息失败: ${tag}"
+        echo "🔍 API 响应: ${release_info}"
+        return 1
+    fi
+
     # 提取资产 URL 和名称
     local asset_count=$(echo "$release_info" | grep -o '"browser_download_url"' | wc -l)
 
     if [ "$asset_count" -eq 0 ]; then
-        echo "ℹ️ 该 Release 没有资产文件"
+        echo "️ 该 Release 没有资产文件"
         return 0
     fi
 
     echo "📦 发现 ${asset_count} 个资产文件"
+
+    local download_success=0
+    local download_failed=0
 
     case "$platform" in
         github)
             echo "$release_info" | grep -o '"browser_download_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
                 local filename=$(basename "$url")
                 echo "⬇️ 下载: ${filename}"
-                curl -L -H "Authorization: token ${token}" \
+                if curl -L -H "Authorization: token ${token}" \
                      -H "Accept: application/octet-stream" \
                      -o "${assets_dir}/${filename}" \
-                     "$url"
+                     "$url" 2>/dev/null; then
+                    echo "   ✅ 下载成功"
+                else
+                    echo "   ❌ 下载失败"
+                    download_failed=$((download_failed + 1))
+                fi
             done
             ;;
         gitee)
             echo "$release_info" | grep -o '"browser_download_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
                 local filename=$(basename "$url")
                 echo "⬇️ 下载: ${filename}"
-                curl -L -d "access_token=${token}" -o "${assets_dir}/${filename}" "$url"
+                if curl -L -d "access_token=${token}" -o "${assets_dir}/${filename}" "$url" 2>/dev/null; then
+                    echo "   ✅ 下载成功"
+                else
+                    echo "   ❌ 下载失败"
+                fi
             done
             ;;
         gitlab)
             echo "$release_info" | grep -o '"direct_asset_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
                 local filename=$(basename "$url")
                 echo "⬇️ 下载: ${filename}"
-                curl -L -H "PRIVATE-TOKEN: ${token}" -o "${assets_dir}/${filename}" "$url"
+                if curl -L -H "PRIVATE-TOKEN: ${token}" -o "${assets_dir}/${filename}" "$url" 2>/dev/null; then
+                    echo "   ✅ 下载成功"
+                else
+                    echo "   ❌ 下载失败"
+                fi
             done
             ;;
         gitcode)
             echo "$release_info" | grep -o '"browser_download_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
                 local filename=$(basename "$url")
                 echo "⬇️ 下载: ${filename}"
-                curl -L -d "access_token=${token}" -o "${assets_dir}/${filename}" "$url"
+                if curl -L -d "access_token=${token}" -o "${assets_dir}/${filename}" "$url" 2>/dev/null; then
+                    echo "   ✅ 下载成功"
+                else
+                    echo "   ❌ 下载失败"
+                fi
             done
             ;;
         cnb)
             echo "$release_info" | grep -o '"browser_download_url":"[^"]*"' | cut -d'"' -f4 | while read -r url; do
                 local filename=$(basename "$url")
                 echo "⬇️ 下载: ${filename}"
-                curl -L -H "Authorization: Bearer ${token}" \
+                if curl -L -H "Authorization: Bearer ${token}" \
                      -H "Accept: application/octet-stream" \
                      -o "${assets_dir}/${filename}" \
-                     "$url"
+                     "$url" 2>/dev/null; then
+                    echo "   ✅ 下载成功"
+                else
+                    echo "   ❌ 下载失败"
+                fi
             done
             ;;
     esac
