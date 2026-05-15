@@ -65,6 +65,24 @@ inputs:
     description: 'Diverged conflict strategy (MERGE/NEW_PR)'
     required: false
     default: 'MERGE'
+
+  sync_release:
+    description: 'Enable Release sync (true/false)' #是否开启 Release 同步（默认 false）
+    required: false
+    default: 'false'
+  release_tag:
+    description: 'Specific release tag to sync (empty = sync all new releases)' #指定要同步的标签名（留空则同步全部）
+    required: false
+    default: ''
+  release_limit:
+    description: 'Maximum number of releases to sync (latest N releases, sorted by created time)' #全量同步时最多同步多少个 Release（分批防止超时）
+    required: false
+    default: '50'
+  release_hour_threshold:
+    description: 'Only sync releases created within the last N hours (0 = no limit)' #只同步最近 N 小时内创建的 Release（与 limit 二选一）
+    required: false
+    default: '0'
+
 runs:
   using: 'composite'
   steps:
@@ -103,6 +121,32 @@ runs:
                   "$URL_TARGET" "$BRANCH_TARGET" "$USERNAME_TARGET" "$TOKEN_TARGET" \
                   "$FORCE_PUSH" "$GIT_POST_BUFFER" "$GIT_LOW_SPEED_LIMIT" "$GIT_LOW_SPEED_TIME" "$PUSH_TIMEOUT" \
                   "$DIVERGED_CONFLICT_STRATEGY" "$UNRELATED_CONFLICT_STRATEGY"
+
+    - name: Sync Releases
+      if: ${{ inputs.sync_release == 'true' }}
+      shell: bash
+      run: |
+        SCRIPT_DIR="${{ github.action_path }}"
+        source "$SCRIPT_DIR/bash/shell.sh"
+        
+        # 复用 main 脚本中的参数环境
+        URL_SOURCE="https://${{ inputs.src }}"
+        BRANCH_SOURCE="${{ inputs.src_branch }}"
+        USERNAME_SOURCE="${{ inputs.src_username }}"
+        TOKEN_SOURCE="${{ inputs.src_token }}"
+        
+        URL_TARGET="https://${{ inputs.dst }}"
+        USERNAME_TARGET="${{ inputs.dst_username }}"
+        TOKEN_TARGET="${{ inputs.dst_token }}"
+        
+        RELEASE_TAG="${{ inputs.release_tag }}"
+        RELEASE_LIMIT="${{ inputs.release_limit }}"
+        RELEASE_HOUR_THRESHOLD="${{ inputs.release_hour_threshold }}"
+        
+        sync_releases \
+          "$URL_SOURCE" "$USERNAME_SOURCE" "$TOKEN_SOURCE" \
+          "$URL_TARGET" "$USERNAME_TARGET" "$TOKEN_TARGET" \
+          "$RELEASE_TAG" "$RELEASE_LIMIT" "$RELEASE_HOUR_THRESHOLD"
 
 branding:
   icon: 'refresh-cw'

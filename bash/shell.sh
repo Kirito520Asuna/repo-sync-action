@@ -65,6 +65,8 @@ detect_platform() {
         echo "gitlab"
     elif echo "$url_temp" | grep -q "gitcode.net"; then
         echo "gitcode"
+    elif echo "$url_temp" | grep -q "cnb.cool"; then        # 新增
+        echo "cnb"
     else
         echo "unknown"
     fi
@@ -542,4 +544,198 @@ main_sync(){
   local MERGE_CONFIG="${DIVERGED_CONFLICT_STRATEGY:-MERGE}|${UNRELATED_CONFLICT_STRATEGY:-MERGE}"
 
   sync "${SOURCE}" "${TARGET}" "${FORCE_PUSH}" "${GIT_CONFIG}" "${MERGE_CONFIG}"
+}
+# 从源平台获取 Releases 列表（支持分页，返回 JSON 数组）
+fetch_releases() {
+    local api_base=${1}
+    local release_endpoint=${2}
+    local token=${3}
+    local limit=${4:-50}
+
+    local url="${api_base}/${release_endpoint}?per_page=${limit}&page=1&sort=created&direction=asc"
+    curl -s -H "Authorization: token ${token}" "$url"
+}
+
+# 检查目标平台是否已存在同名 tag 的 Release
+release_tag_exists() {
+    local api_base=${1}
+    local release_endpoint=${2}
+    local token=${3}
+    local tag_name=${4}
+
+    local url="${api_base}/${release_endpoint}/tags/${tag_name}"
+    local http_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${token}" "$url")
+    [ "$http_code" = "200" ] && return 0 || return 1
+}
+
+# 创建 Release
+create_release_at_target() {
+    local api_base=${1}
+    local release_endpoint=${2}
+    local token=${3}
+    local tag_name=${4}
+    local name=${5}
+    local body=${6}
+    local prerelease=${7}
+
+    local url="${api_base}/${release_endpoint}"
+    local response=$(curl -s -X POST "$url" \
+        -H "Authorization: token ${token}" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"tag_name\": \"${tag_name}\",
+            \"name\": \"${name}\",
+            \"body\": \"${body}\",
+            \"prerelease\": ${prerelease}
+        }")
+
+    local release_id=$(echo "$response" | jq -r '.id // empty')
+    if [ -z "$release_id" ]; then
+        echo "❌ 创建失败: $(echo "$response" | jq -r '.message // .')"
+        return 1
+    fi
+    echo "$release_id"
+}
+
+# 下载 GitHub/Gitee/GitLab 的资产并上传到目标 Release
+upload_assets() {
+    local api_base=${1}
+    local assets_endpoint=${2}
+    local token=${3}
+    local release_id=${4}
+    local assets_json=${5}   # 源 Release 的 assets 数组 JSON
+
+    echo "${assets_json}" | jq -c '.[]' | while read -r asset; do
+        local name=$(echo "$asset" | jq -r '.name')
+        local download_url=$(echo "$asset" | jq -r '.browser_download_url // .url')
+        echo "  📦 上传资产: ${name}"
+
+        # 下载到临时文件
+        local tmp_file="/tmp/release_asset_${RANDOM}.bin"
+        curl -sL -o "$tmp_file" "$download_url"
+
+        # 上传到目标 Release
+        local upload_url="${api_base}/${assets_endpoint//RELEASE_ID/${release_id}}?name=${name}"
+        curl -s -X POST "$upload_url" \
+            -H "Authorization: token ${token}" \
+            -F "file=@${tmp_file}"
+
+        rm -f "$tmp_file"
+    done
+}
+# 返回格式: "api_base_url|release_endpoint|assets_endpoint"
+get_release_api_info() {
+    local url_temp=${1}
+    local platform=$(detect_platform "$url_temp")
+    local owner=$(extract_repo_owner "$url_temp")
+    local repo=$(extract_repo_name "$url_temp")
+
+    case "$platform" in
+        github)
+            echo "https://api.github.com|repos/${owner}/${repo}/releases|repos/${owner}/${repo}/releases/RELEASE_ID/assets"
+            ;;
+        gitee|gitcode)
+            echo "https://${platform}.com/api/v5|repos/${owner}/${repo}/releases|repos/${owner}/${repo}/releases/RELEASE_ID/assets"
+            ;;
+        gitlab)
+            echo "https://gitlab.com/api/v4|projects/${owner}%2F${repo}/releases|projects/${owner}%2F${repo}/releases/RELEASE_ID/assets"
+            ;;
+        cnb)
+            # 假设 cnb.cool 兼容 Gitee OpenAPI 风格，如有差异请替换
+            local domain=$(echo "$url_temp" | awk -F'/' '{print $1}')
+            echo "https://${domain}/api/v5|repos/${owner}/${repo}/releases|repos/${owner}/${repo}/releases/RELEASE_ID/assets"
+            ;;
+        *)
+            echo "||"
+            ;;
+    esac
+}
+# 主入口：同步 Releases
+sync_releases() {
+    local src_url=${1}
+    local src_username=${2}
+    local src_token=${3}
+    local dst_url=${4}
+    local dst_username=${5}
+    local dst_token=${6}
+    local tag_filter=${7}
+    local limit=${8}
+    local hour_threshold=${9}
+
+    echo "🔄 开始 Release 同步..."
+
+    # 解析平台 API 信息
+    local src_info=$(get_release_api_info "$src_url")
+    local dst_info=$(get_release_api_info "$dst_url")
+    local src_api_base=$(echo "$src_info" | cut -d'|' -f1)
+    local src_release_endpoint=$(echo "$src_info" | cut -d'|' -f2)
+    local src_assets_endpoint=$(echo "$src_info" | cut -d'|' -f3)
+    local dst_api_base=$(echo "$dst_info" | cut -d'|' -f1)
+    local dst_release_endpoint=$(echo "$dst_info" | cut -d'|' -f2)
+    local dst_assets_endpoint=$(echo "$dst_info" | cut -d'|' -f3)
+
+    if [ -z "$src_api_base" ] || [ -z "$dst_api_base" ]; then
+        echo "❌ 无法识别源/目标平台 API"
+        return 1
+    fi
+
+    # 获取源 Releases（按 created 升序）
+    local releases_json=$(fetch_releases "$src_api_base" "$src_release_endpoint" "$src_token" "$limit")
+    if [ -z "$releases_json" ] || [ "$releases_json" = "[]" ]; then
+        echo "⚠️ 源仓库无 Release 数据"
+        return 0
+    fi
+
+    # 时间阈值过滤（hour_threshold > 0 时生效）
+    if [ "$hour_threshold" -gt 0 ]; then
+        local threshold_ts=$(date -d "${hour_threshold} hours ago" +%s)
+        releases_json=$(echo "$releases_json" | jq --argjson ts "$threshold_ts" '
+            [ .[] | select( (.created_at | fromdate) >= $ts ) ]')
+    fi
+
+    # 如果指定了 tag，仅保留该 tag 的 Release
+    if [ -n "$tag_filter" ]; then
+        releases_json=$(echo "$releases_json" | jq --arg tag "$tag_filter" '
+            [ .[] | select(.tag_name == $tag) ]')
+    fi
+
+    local total=$(echo "$releases_json" | jq 'length')
+    if [ "$total" -eq 0 ]; then
+        echo "✅ 没有需要同步的 Release"
+        return 0
+    fi
+    echo "📋 将同步 ${total} 个 Release"
+
+    # 遍历每个源 Release
+    echo "$releases_json" | jq -c '.[]' | while read -r release; do
+        local tag_name=$(echo "$release" | jq -r '.tag_name')
+        local name=$(echo "$release" | jq -r '.name // .tag_name')
+        local body=$(echo "$release" | jq -r '.body // ""')
+        local prerelease=$(echo "$release" | jq -r '.prerelease // false')
+        local assets=$(echo "$release" | jq -r '.assets // empty')
+
+        echo "🏷️ 处理: ${tag_name}"
+
+        # 检查目标是否已存在
+        if release_tag_exists "$dst_api_base" "$dst_release_endpoint" "$dst_token" "$tag_name"; then
+            echo "  ⏭️ 目标已存在同名 Release，跳过"
+            continue
+        fi
+
+        # 创建 Release
+        local new_id=$(create_release_at_target "$dst_api_base" "$dst_release_endpoint" "$dst_token" \
+            "$tag_name" "$name" "$body" "$prerelease")
+        if [ -z "$new_id" ]; then
+            echo "  ❌ 创建失败，继续下一个"
+            continue
+        fi
+        echo "  ✅ 创建成功，ID: ${new_id}"
+
+        # 上传资产（如果有）
+        if [ "$assets" != "null" ] && [ "$assets" != "[]" ]; then
+            upload_assets "$dst_api_base" "$dst_assets_endpoint" "$dst_token" "$new_id" "$assets"
+        fi
+    done
+
+    echo "🎉 Release 同步完成"
 }
